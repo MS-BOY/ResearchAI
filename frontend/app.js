@@ -1,61 +1,133 @@
-const button =
-    document.getElementById("researchBtn");
+```javascript
+// ==========================================
+// DOM Elements
+// ==========================================
 
-const question =
-    document.getElementById("question");
+const button = document.getElementById("researchBtn");
+const question = document.getElementById("question");
+const result = document.getElementById("result");
+const summary = document.getElementById("summary");
+const sourceCount = document.getElementById("sourceCount");
+const language = document.getElementById("language");
 
-const result =
-    document.getElementById("result");
 
-const summary =
-    document.getElementById("summary");
+// ==========================================
+// API URL
+// ==========================================
+//
+// Render এবং একই server-এ frontend/backend থাকলে
+// শুধু "/research" ব্যবহার করতে হবে.
+//
+// Local:
+// http://127.0.0.1:5000/research
+//
+// Render:
+// /research
+// ==========================================
 
-const sourceCount =
-    document.getElementById("sourceCount");
-
-const language =
-    document.getElementById("language");
+const API_URL = "/research";
 
 
 // ==========================================
 // Research Button
 // ==========================================
 
-button.addEventListener(
-    "click",
-    async function () {
+if (button) {
 
-        const text =
-            question.value.trim();
+    button.addEventListener(
+        "click",
+        startResearch
+    );
+
+}
 
 
-        // Empty question
-        if (!text) {
+// ==========================================
+// Enter Key Support
+// ==========================================
 
-            alert(
-                "Please enter a question."
-            );
+if (question) {
 
-            return;
+    question.addEventListener(
+        "keydown",
+        function (event) {
+
+            if (
+                event.key === "Enter" &&
+                !event.shiftKey
+            ) {
+
+                event.preventDefault();
+
+                startResearch();
+
+            }
+
         }
+    );
+
+}
 
 
-        // Show result
+// ==========================================
+// Main Research Function
+// ==========================================
+
+async function startResearch() {
+
+    const text =
+        question
+            ? question.value.trim()
+            : "";
+
+
+    // ======================================
+    // Empty Question
+    // ======================================
+
+    if (!text) {
+
+        alert(
+            "Please enter a question."
+        );
+
+        return;
+
+    }
+
+
+    // ======================================
+    // Show Result
+    // ======================================
+
+    if (result) {
+
         result.classList.remove(
             "hidden"
         );
 
+    }
 
-        // Loading state
-        button.disabled = true;
 
-        button.textContent =
-            "Researching...";
+    // ======================================
+    // Loading
+    // ======================================
 
+    button.disabled = true;
+
+    button.textContent =
+        "Researching...";
+
+
+    if (sourceCount) {
 
         sourceCount.textContent =
             "Searching...";
 
+    }
+
+
+    if (summary) {
 
         summary.innerHTML = `
 
@@ -77,145 +149,170 @@ button.addEventListener(
                     🧠 তথ্য বিশ্লেষণ করা হচ্ছে...
                 </p>
 
+                <br>
+
+                <p>
+                    ✍️ Summary তৈরি করা হচ্ছে...
+                </p>
+
             </div>
 
         `;
 
-
-        try {
-
-            // ==================================
-            // Selected Language
-            // ==================================
-
-            const selectedLanguage =
-                language
-                    ? language.value
-                    : "auto";
+    }
 
 
-            console.log(
-                "Question:",
-                text
-            );
+    try {
 
-            console.log(
-                "Selected language:",
-                selectedLanguage
-            );
+        // ==================================
+        // Selected Language
+        // ==================================
 
-
-            // ==================================
-            // Send request to Python
-            // ==================================
-
-            const response =
-                await fetch(
-                    "http://127.0.0.1:5000/research",
-                    {
-
-                        method: "POST",
-
-                        headers: {
-
-                            "Content-Type":
-                                "application/json"
-
-                        },
-
-                        body: JSON.stringify({
-
-                            question:
-                                text,
-
-                            language:
-                                selectedLanguage
-
-                        })
-
-                    }
-                );
+        const selectedLanguage =
+            language
+                ? language.value
+                : "auto";
 
 
-            // ==================================
-            // Read JSON
-            // ==================================
-
-            const data =
-                await response.json();
+        console.log(
+            "Question:",
+            text
+        );
 
 
-            // ==================================
-            // Error check
-            // ==================================
-
-            if (!response.ok) {
-
-                throw new Error(
-
-                    data.error ||
-                    "Research failed"
-
-                );
-
-            }
+        console.log(
+            "Selected language:",
+            selectedLanguage
+        );
 
 
-            console.log(
-                "Backend response:",
-                data
+        // ==================================
+        // Send Request To Backend
+        // ==================================
+
+        const response =
+            await fetch(
+                API_URL,
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json",
+
+                        "Accept":
+                            "application/json"
+
+                    },
+
+                    body: JSON.stringify({
+
+                        question:
+                            text,
+
+                        language:
+                            selectedLanguage
+
+                    })
+
+                }
             );
 
 
-            // ==================================
-            // Language information
-            // ==================================
+        // ==================================
+        // Read JSON
+        // ==================================
 
-            let languageText = "";
-
-
-            if (
-                data.answer_language
-            ) {
-
-                languageText = `
-
-                    <div class="language-info">
-
-                        🌐 Answer language:
-
-                        <strong>
-                            ${escapeHTML(
-                                data.answer_language
-                            )}
-                        </strong>
-
-                    </div>
-
-                `;
-
-            }
+        const data =
+            await response.json();
 
 
-            // ==================================
-            // Source Count
-            // ==================================
+        console.log(
+            "Backend response:",
+            data
+        );
+
+
+        // ==================================
+        // Error Check
+        // ==================================
+
+        if (!response.ok) {
+
+            throw new Error(
+
+                data.error ||
+                "Research failed"
+
+            );
+
+        }
+
+
+        // ==================================
+        // Language Information
+        // ==================================
+
+        let languageText = "";
+
+
+        if (
+            data.answer_language
+        ) {
+
+            languageText = `
+
+                <div class="language-info">
+
+                    🌐 Answer language:
+
+                    <strong>
+
+                        ${escapeHTML(
+                            data.answer_language
+                        )}
+
+                    </strong>
+
+                </div>
+
+            `;
+
+        }
+
+
+        // ==================================
+        // Source Count
+        // ==================================
+
+        const totalSources =
+            Number(
+                data.source_count || 0
+            );
+
+
+        if (sourceCount) {
 
             sourceCount.textContent =
-                `${data.source_count || 0} Sources`;
+                `${totalSources} Sources`;
+
+        }
 
 
-            // ==================================
-            // No Sources
-            // ==================================
+        // ==================================
+        // No Sources
+        // ==================================
 
-            if (
+        if (
+            !Array.isArray(
+                data.sources
+            ) ||
+            data.sources.length === 0
+        ) {
 
-                !data.sources ||
-
-                data.sources.length === 0
-
-            ) {
+            if (summary) {
 
                 summary.innerHTML = `
 
@@ -223,160 +320,176 @@ button.addEventListener(
 
                     <div class="error-box">
 
+                        <h3>
+                            ❌ কোনো readable source পাওয়া যায়নি
+                        </h3>
+
                         <p>
-                            ❌ কোনো readable
-                            source পাওয়া যায়নি।
+
+                            Internet থেকে
+                            readable information
+                            পাওয়া যায়নি।
+
                         </p>
 
                     </div>
 
                 `;
 
-                return;
-
             }
 
+            return;
 
-            // ==================================
-            // AI SUMMARY
-            // ==================================
-
-            let html = "";
+        }
 
 
-            html += languageText;
+        // ==================================
+        // Main HTML
+        // ==================================
+
+        let html = "";
 
 
-            /*
-             * Backend যদি AI summary পাঠায়
-             * তাহলে সেটাই প্রথমে দেখাবে।
-             */
+        // ==================================
+        // Language
+        // ==================================
 
-            if (data.summary) {
+        html += languageText;
 
-                html += `
 
-                    <div class="ai-summary">
+        // ==================================
+        // AI Summary
+        // ==================================
 
-                        <div class="summary-title">
+        if (
+            data.summary &&
+            String(data.summary).trim()
+        ) {
 
-                            🧠 AI Summary
+            html += `
 
-                        </div>
+                <div class="ai-summary">
 
-                        <div class="summary-content">
+                    <div class="summary-title">
 
-                            ${formatText(
-                                data.summary
-                            )}
-
-                        </div>
+                        🧠 AI Summary
 
                     </div>
 
-                `;
+                    <div class="summary-content">
 
-            }
+                        ${formatText(
+                            data.summary
+                        )}
 
-
-            // ==================================
-            // Research Information
-            // ==================================
-
-            html += `
-
-                <div class="research-intro">
-
-                    <h2>
-                        📚 Research Result
-                    </h2>
-
-                    <p>
-
-                        মোট
-
-                        <strong>
-                            ${data.source_count}
-                        </strong>
-
-                        টি source পাওয়া গেছে।
-
-                    </p>
+                    </div>
 
                 </div>
 
             `;
 
+        }
 
-            // ==================================
-            // Sources
-            // ==================================
+
+        // ==================================
+        // Research Result
+        // ==================================
+
+        html += `
+
+            <div class="research-intro">
+
+                <h2>
+                    📚 Research Result
+                </h2>
+
+                <p>
+
+                    মোট
+
+                    <strong>
+                        ${totalSources}
+                    </strong>
+
+                    টি readable source পাওয়া গেছে।
+
+                </p>
+
+            </div>
+
+        `;
+
+
+        // ==================================
+        // Find Video Sources
+        // ==================================
+
+        const videoSources =
+            data.sources.filter(
+                function (source) {
+
+                    return isVideoSource(
+                        source.url
+                    );
+
+                }
+            );
+
+
+        // ==================================
+        // Video Examples
+        // ==================================
+
+        if (
+            videoSources.length > 0
+        ) {
 
             html += `
 
-                <div class="sources-title">
+                <div class="video-section">
 
-                    🔗 Sources
+                    <div class="sources-title">
 
-                </div>
+                        🎥 YouTube / Video Examples
+
+                    </div>
 
             `;
 
 
-            data.sources.forEach(
-
+            videoSources.forEach(
                 function (
                     source,
                     index
                 ) {
 
-
                     html += `
 
-                        <div class="source">
+                        <div class="video-source">
 
                             <h3>
 
                                 ${index + 1}.
                                 ${escapeHTML(
                                     source.title ||
-                                    "Untitled source"
+                                    "Video"
                                 )}
 
                             </h3>
 
-
-                            ${
-                                source.text
-                                ? `
-
-                                    <p>
-
-                                        ${escapeHTML(
-                                            source.text
-                                        )}
-
-                                    </p>
-
-                                `
-                                : `
-                                    <p>
-                                        No readable
-                                        text found.
-                                    </p>
-                                `
-                            }
-
-
                             <a
+
                                 href="${escapeAttribute(
                                     source.url
                                 )}"
+
                                 target="_blank"
+
                                 rel="noopener noreferrer"
+
                             >
 
-                                Open source →
+                                ▶ Watch video →
 
                             </a>
 
@@ -385,31 +498,168 @@ button.addEventListener(
                     `;
 
                 }
-
             );
 
 
-            // ==================================
-            // Show result
-            // ==================================
+            html += `
+
+                </div>
+
+            `;
+
+        }
+
+
+        // ==================================
+        // Sources Title
+        // ==================================
+
+        html += `
+
+            <div class="sources-title">
+
+                🔗 Sources
+
+            </div>
+
+        `;
+
+
+        // ==================================
+        // Display Sources
+        // ==================================
+
+        data.sources.forEach(
+
+            function (
+                source,
+                index
+            ) {
+
+                const title =
+                    source.title ||
+                    "Untitled source";
+
+
+                const text =
+                    source.text ||
+                    "No readable text found.";
+
+
+                const url =
+                    source.url ||
+                    "#";
+
+
+                const video =
+                    isVideoSource(
+                        url
+                    );
+
+
+                html += `
+
+                    <div class="source">
+
+                        <h3>
+
+                            ${index + 1}.
+                            ${escapeHTML(
+                                title
+                            )}
+
+                        </h3>
+
+
+                        ${
+                            video
+                            ? `
+
+                                <div class="video-badge">
+
+                                    🎥 Video source
+
+                                </div>
+
+                            `
+                            : ""
+                        }
+
+
+                        <p>
+
+                            ${escapeHTML(
+                                text
+                            )}
+
+                        </p>
+
+
+                        <a
+
+                            href="${escapeAttribute(
+                                url
+                            )}"
+
+                            target="_blank"
+
+                            rel="noopener noreferrer"
+
+                        >
+
+                            ${
+                                video
+                                ? "▶ Watch source →"
+                                : "Open source →"
+                            }
+
+                        </a>
+
+                    </div>
+
+                `;
+
+            }
+
+        );
+
+
+        // ==================================
+        // Show Result
+        // ==================================
+
+        if (summary) {
 
             summary.innerHTML =
                 html;
 
-
         }
 
-        catch (error) {
 
-            console.error(
-                "Research Error:",
-                error
-            );
+        console.log(
+            "✅ Research completed"
+        );
 
+    }
+
+
+    catch (error) {
+
+        console.error(
+            "Research Error:",
+            error
+        );
+
+
+        if (sourceCount) {
 
             sourceCount.textContent =
                 "Error";
 
+        }
+
+
+        if (summary) {
 
             summary.innerHTML = `
 
@@ -421,28 +671,22 @@ button.addEventListener(
 
                     <p>
 
-                        Backend-এর সাথে
-                        connection অথবা
-                        research process-এ
-                        সমস্যা হয়েছে।
+                        ${escapeHTML(
+                            error.message ||
+                            "Unknown error"
+                        )}
 
                     </p>
 
                     <br>
 
                     <p>
-                        Python server চালু আছে
-                        কিনা নিশ্চিত করো।
+
+                        Backend server
+                        চালু আছে কিনা
+                        নিশ্চিত করো।
+
                     </p>
-
-                    <br>
-
-                    <code>
-
-                        venv\\Scripts\\python.exe
-                        backend\\app.py
-
-                    </code>
 
                 </div>
 
@@ -450,23 +694,24 @@ button.addEventListener(
 
         }
 
+    }
 
-        finally {
 
-            button.disabled =
-                false;
+    finally {
 
-            button.textContent =
-                "Research →";
+        button.disabled =
+            false;
 
-        }
+        button.textContent =
+            "Research →";
 
     }
-);
+
+}
 
 
 // ==========================================
-// Format AI Text
+// Format Text
 // ==========================================
 
 function formatText(text) {
@@ -478,18 +723,83 @@ function formatText(text) {
     }
 
 
-    return escapeHTML(
-        text
-    )
+    let safeText =
+        escapeHTML(
+            String(text)
+        );
 
-    .replace(
-        /\n\n/g,
-        "<br><br>"
-    )
 
-    .replace(
-        /\n/g,
-        "<br>"
+    // Bold
+    safeText =
+        safeText.replace(
+            /\*\*(.*?)\*\*/g,
+            "<strong>$1</strong>"
+        );
+
+
+    // Line breaks
+    safeText =
+        safeText.replace(
+            /\r\n/g,
+            "\n"
+        );
+
+
+    safeText =
+        safeText.replace(
+            /\n\n+/g,
+            "<br><br>"
+        );
+
+
+    safeText =
+        safeText.replace(
+            /\n/g,
+            "<br>"
+        );
+
+
+    return safeText;
+
+}
+
+
+// ==========================================
+// Detect Video Source
+// ==========================================
+
+function isVideoSource(url) {
+
+    if (!url) {
+
+        return false;
+
+    }
+
+
+    const value =
+        String(url)
+            .toLowerCase();
+
+
+    return (
+
+        value.includes(
+            "youtube.com"
+        ) ||
+
+        value.includes(
+            "youtu.be"
+        ) ||
+
+        value.includes(
+            "vimeo.com"
+        ) ||
+
+        value.includes(
+            "dailymotion.com"
+        )
+
     );
 
 }
@@ -501,13 +811,25 @@ function formatText(text) {
 
 function escapeHTML(text) {
 
+    if (
+        text === null ||
+        text === undefined
+    ) {
+
+        return "";
+
+    }
+
+
     const div =
         document.createElement(
             "div"
         );
 
+
     div.textContent =
-        text;
+        String(text);
+
 
     return div.innerHTML;
 
@@ -528,6 +850,31 @@ function escapeAttribute(url) {
 
 
     return String(url)
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+
+        .replace(
+            /'/g,
+            "&#39;"
+        )
+
+        .replace(
+            /</g,
+            "&lt;"
+        )
+
+        .replace(
+            />/g,
+            "&gt;"
+        );
+
 }
+```
