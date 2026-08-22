@@ -1,558 +1,149 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import quote, urlparse, parse_qs, unquote
-import re
 
-
-# ============================================================
-# CONFIG
-# ============================================================
-
-SEARCH_URL = "https://html.duckduckgo.com/html/"
-
-TIMEOUT = 20
-
-MAX_RESULTS = 8
-
-MAX_TEXT_LENGTH = 8000
-
-
-# ============================================================
-# SESSION
-# ============================================================
-
-session = requests.Session()
-
-session.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/151.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,"
-        "application/xml;q=0.9,*/*;q=0.8"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "keep-alive"
-})
-
-
-# ============================================================
-# REAL URL
-# ============================================================
 
 def get_real_url(url):
 
-    if not url:
-        return ""
-
-    url = str(url).strip()
-
-    # //example.com
+    # DuckDuckGo relative URL
     if url.startswith("//"):
         url = "https:" + url
 
-    # DuckDuckGo redirect
+    # DuckDuckGo redirect URL থেকে আসল URL বের করা
     if "duckduckgo.com/l/?" in url:
 
-        try:
+        parsed = urlparse(url)
 
-            parsed = urlparse(url)
+        params = parse_qs(parsed.query)
 
-            params = parse_qs(
-                parsed.query
-            )
+        if "uddg" in params:
 
-            if "uddg" in params:
+            real_url = params["uddg"][0]
 
-                real_url = params["uddg"][0]
+            real_url = unquote(real_url)
 
-                real_url = unquote(
-                    real_url
-                )
+            # ভুল escaped slash থাকলে ঠিক করা
+            real_url = real_url.replace("\\/", "/")
 
-                real_url = real_url.replace(
-                    "\\/",
-                    "/"
-                )
-
-                return real_url
-
-        except Exception as e:
-
-            print(
-                "⚠️ URL decode error:",
-                e
-            )
+            return real_url
 
     return url
 
 
-# ============================================================
-# VALID URL
-# ============================================================
-
-def is_valid_url(url):
-
-    if not url:
-        return False
-
-    try:
-
-        parsed = urlparse(url)
-
-        return (
-            parsed.scheme in (
-                "http",
-                "https"
-            )
-            and bool(parsed.netloc)
-        )
-
-    except Exception:
-
-        return False
-
-
-# ============================================================
-# SEARCH WEB
-# ============================================================
-
 def search_web(question):
 
-    question = str(
-        question or ""
-    ).strip()
+    print(f"\n🔎 Searching internet for: {question}")
 
-    print("\n" + "=" * 60)
-    print("🔎 WEB SEARCH")
-    print("=" * 60)
-
-    print(
-        "Query:",
-        question
-    )
-
-    if not question:
-
-        print(
-            "❌ Empty search query"
-        )
-
-        return []
-
-    search_url = (
-        SEARCH_URL
-        + "?q="
+    url = (
+        "https://html.duckduckgo.com/html/?q="
         + quote(question)
     )
 
-    print(
-        "🌐 URL:",
-        search_url
-    )
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
 
     try:
 
-        response = session.get(
-            search_url,
-            timeout=TIMEOUT,
-            allow_redirects=True
-        )
-
-        print(
-            "📡 HTTP:",
-            response.status_code
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
         )
 
         response.raise_for_status()
 
-    except requests.RequestException as e:
-
-        print(
-            "❌ DuckDuckGo request failed:",
-            e
-        )
-
-        return []
-
     except Exception as e:
 
-        print(
-            "❌ Search error:",
-            e
-        )
-
-        return []
-
-    html = response.text
-
-    print(
-        "📄 HTML length:",
-        len(html)
-    )
-
-    if not html:
-
-        print(
-            "❌ Empty HTML response"
-        )
+        print("❌ Search failed:", e)
 
         return []
 
     soup = BeautifulSoup(
-        html,
+        response.text,
         "html.parser"
     )
 
     results = []
 
-    # ========================================================
-    # METHOD 1
-    # DuckDuckGo normal result blocks
-    # ========================================================
+    for result in soup.select(".result"):
 
-    result_blocks = soup.select(
-        ".result"
-    )
+        title = result.select_one(
+            ".result__title"
+        )
 
-    print(
-        "🔍 .result blocks:",
-        len(result_blocks)
-    )
+        link = result.select_one(
+            ".result__a"
+        )
 
-    for block in result_blocks:
+        if title and link:
 
-        try:
-
-            link = block.select_one(
-                "a.result__a"
-            )
-
-            if not link:
-
-                link = block.select_one(
-                    "a"
-                )
-
-            if not link:
-
-                continue
-
-            raw_url = link.get(
-                "href",
-                ""
-            )
+            raw_url = link.get("href")
 
             real_url = get_real_url(
                 raw_url
             )
 
-            if not is_valid_url(
-                real_url
-            ):
-
-                continue
-
-            title = link.get_text(
-                " ",
-                strip=True
-            )
-
-            if not title:
-
-                title = (
-                    "Untitled source"
-                )
-
-            results.append({
-
-                "title": title,
-
-                "url": real_url
-
-            })
-
-        except Exception as e:
-
-            print(
-                "⚠️ Result parsing error:",
-                e
-            )
-
-    # ========================================================
-    # METHOD 2
-    # Fallback: result__a directly
-    # ========================================================
-
-    if not results:
-
-        print(
-            "🔄 Trying fallback parser..."
-        )
-
-        links = soup.select(
-            "a.result__a"
-        )
-
-        print(
-            "🔗 result__a links:",
-            len(links)
-        )
-
-        for link in links:
-
-            try:
-
-                raw_url = link.get(
-                    "href",
-                    ""
-                )
-
-                real_url = get_real_url(
-                    raw_url
-                )
-
-                if not is_valid_url(
-                    real_url
-                ):
-
-                    continue
-
-                title = link.get_text(
-                    " ",
-                    strip=True
-                )
-
-                if not title:
-
-                    title = (
-                        "Untitled source"
-                    )
+            if real_url.startswith("http"):
 
                 results.append({
-
-                    "title": title,
-
+                    "title": title.get_text(
+                        " ",
+                        strip=True
+                    ),
                     "url": real_url
-
                 })
 
-            except Exception:
+    return results[:5]
 
-                continue
-
-    # ========================================================
-    # METHOD 3
-    # Generic external links
-    # ========================================================
-
-    if not results:
-
-        print(
-            "🔄 Trying generic link parser..."
-        )
-
-        for link in soup.find_all(
-            "a",
-            href=True
-        ):
-
-            try:
-
-                raw_url = link.get(
-                    "href"
-                )
-
-                real_url = get_real_url(
-                    raw_url
-                )
-
-                if not is_valid_url(
-                    real_url
-                ):
-
-                    continue
-
-                domain = urlparse(
-                    real_url
-                ).netloc.lower()
-
-                # Skip DuckDuckGo itself
-                if (
-                    "duckduckgo.com"
-                    in domain
-                ):
-
-                    continue
-
-                title = link.get_text(
-                    " ",
-                    strip=True
-                )
-
-                if len(title) < 3:
-
-                    continue
-
-                results.append({
-
-                    "title": title,
-
-                    "url": real_url
-
-                })
-
-            except Exception:
-
-                continue
-
-    # ========================================================
-    # REMOVE DUPLICATES
-    # ========================================================
-
-    unique = []
-
-    seen = set()
-
-    for item in results:
-
-        url = item.get(
-            "url",
-            ""
-        )
-
-        if not url:
-            continue
-
-        if url in seen:
-            continue
-
-        seen.add(url)
-
-        unique.append(
-            item
-        )
-
-    results = unique[
-        :MAX_RESULTS
-    ]
-
-    print(
-        "✅ Final search results:",
-        len(results)
-    )
-
-    for index, item in enumerate(
-        results,
-        1
-    ):
-
-        print(
-            f"{index}.",
-            item["title"]
-        )
-
-        print(
-            "   ",
-            item["url"]
-        )
-
-    print("=" * 60)
-
-    return results
-
-
-# ============================================================
-# READ WEB PAGE
-# ============================================================
 
 def read_page(url):
 
-    print("\n" + "-" * 60)
-
-    print(
-        "🌐 Reading webpage:"
-    )
-
-    print(
-        url
-    )
-
-    if not is_valid_url(url):
-
-        print(
-            "❌ Invalid URL"
-        )
-
-        return ""
-
     try:
 
-        response = session.get(
-            url,
-            timeout=TIMEOUT,
-            allow_redirects=True
+        print(
+            f"🌐 Opening: {url}"
         )
 
-        print(
-            "📡 HTTP:",
-            response.status_code
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
         )
 
         if response.status_code != 200:
 
+            print(
+                "⚠️ HTTP:",
+                response.status_code
+            )
+
             return ""
-
-    except requests.RequestException as e:
-
-        print(
-            "⚠️ Page request failed:",
-            e
-        )
-
-        return ""
-
-    except Exception as e:
-
-        print(
-            "⚠️ Page error:",
-            e
-        )
-
-        return ""
-
-    try:
 
         soup = BeautifulSoup(
             response.text,
             "html.parser"
         )
 
-        # Remove unwanted tags
+        # Unwanted elements remove
         for tag in soup([
             "script",
             "style",
-            "noscript",
             "nav",
             "footer",
             "header",
             "aside",
-            "form",
-            "iframe",
-            "svg"
+            "form"
         ]):
 
             tag.decompose()
 
-        # ====================================================
-        # ARTICLE
-        # ====================================================
-
-        article = soup.find(
-            "article"
-        )
+        # Article থাকলে সেটাকে priority
+        article = soup.find("article")
 
         if article:
 
@@ -563,136 +154,77 @@ def read_page(url):
 
         else:
 
-            # =================================================
-            # MAIN
-            # =================================================
+            # paragraph থেকে text নেওয়া
+            paragraphs = soup.find_all("p")
 
-            main = soup.find(
-                "main"
-            )
-
-            if main:
-
-                text = main.get_text(
+            text = " ".join(
+                p.get_text(
                     " ",
                     strip=True
                 )
-
-            else:
-
-                # =============================================
-                # PARAGRAPHS
-                # =============================================
-
-                paragraphs = soup.find_all(
-                    "p"
-                )
-
-                text = " ".join(
-
-                    p.get_text(
-                        " ",
-                        strip=True
-                    )
-
-                    for p in paragraphs
-
-                    if p.get_text(
-                        strip=True
-                    )
-
-                )
-
-        # Normalize spaces
-        text = re.sub(
-            r"\s+",
-            " ",
-            text
-        ).strip()
-
-        if len(text) < 50:
-
-            print(
-                "⚠️ Text too short:",
-                len(text)
+                for p in paragraphs
             )
 
-            return ""
-
-        print(
-            "✅ Read:",
-            len(text),
-            "characters"
+        text = " ".join(
+            text.split()
         )
 
-        return text[
-            :MAX_TEXT_LENGTH
-        ]
+        return text[:8000]
 
     except Exception as e:
 
         print(
-            "⚠️ BeautifulSoup error:",
+            "⚠️ Page read failed:",
             e
         )
 
         return ""
 
 
-# ============================================================
-# RESEARCH
-# ============================================================
-
 def research(question):
 
-    results = search_web(
-        question
-    )
+    results = search_web(question)
 
     if not results:
 
-        print(
-            "❌ No search results."
-        )
+        print("❌ No sources found.")
 
-        return []
+        return
 
-    sources = []
+    print(
+        f"\n📚 Found {len(results)} sources:\n"
+    )
 
-    for index, result in enumerate(
+    successful = 0
+
+    for i, result in enumerate(
         results,
         1
     ):
 
-        title = result.get(
-            "title",
-            "Untitled source"
-        )
-
-        url = result.get(
-            "url",
-            ""
+        print(
+            "\n" + "=" * 60
         )
 
         print(
-            f"\n📖 SOURCE {index}/{len(results)}"
+            f"📄 SOURCE {i}"
         )
 
         print(
-            "📄",
-            title
+            "Title:",
+            result["title"]
         )
 
         print(
-            "🔗",
-            url
+            "URL:",
+            result["url"]
         )
 
-        # Skip social/video
         domain = urlparse(
-            url
+            result["url"]
         ).netloc.lower()
 
+        # প্রথম version-এ এগুলো বাদ
         blocked = [
             "youtube.com",
             "youtu.be",
@@ -707,40 +239,42 @@ def research(question):
         ):
 
             print(
-                "⏭️ Skipped social/video"
+                "⏭️ Video/social source skipped"
             )
 
             continue
 
-        text = read_page(
-            url
+        print(
+            "\n📖 Reading webpage..."
         )
 
-        if not text:
+        text = read_page(
+            result["url"]
+        )
+
+        if text:
+
+            successful += 1
 
             print(
-                "⚠️ No readable text"
+                "\n📝 Extracted text:\n"
             )
 
-            continue
+            print(
+                text[:3000]
+            )
 
-        sources.append({
+        else:
 
-            "title": title,
-
-            "url": url,
-
-            "text": text
-
-        })
-
-    print("\n" + "=" * 60)
+            print(
+                "⚠️ No readable text found."
+            )
 
     print(
-        "✅ READABLE SOURCES:",
-        len(sources)
+        "\n" + "=" * 60
     )
 
-    print("=" * 60)
-
-    return sources
+    print(
+        f"✅ Successfully read "
+        f"{successful} source(s)."
+    )
