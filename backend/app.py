@@ -166,18 +166,185 @@ def translate_text(
 # Home
 # ==========================================
 
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import sys
+import os
+
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+sys.path.insert(0, BASE_DIR)
+
+from tools.researcher import search_web, read_page
+from tools.summarizer import build_research_summary
+
+app = Flask(
+    __name__,
+    static_folder=os.path.join(BASE_DIR, "frontend"),
+    static_url_path=""
+)
+
+CORS(app)
+
+
+# ==========================================
+# Frontend
+# ==========================================
+
 @app.route("/")
 def home():
+    return send_from_directory(
+        os.path.join(BASE_DIR, "frontend"),
+        "index.html"
+    )
+
+
+# ==========================================
+# Health Check
+# ==========================================
+
+@app.route("/api/health")
+def health():
+    return jsonify({
+        "status": "online",
+        "message": "Research AI Backend is running"
+    })
+
+
+# ==========================================
+# Research API
+# ==========================================
+
+@app.route("/research", methods=["POST"])
+def research():
+
+    data = request.get_json(silent=True)
+
+    if not data:
+        return jsonify({
+            "error": "Invalid JSON request"
+        }), 400
+
+    question = data.get(
+        "question",
+        ""
+    ).strip()
+
+    if not question:
+        return jsonify({
+            "error": "Question is required"
+        }), 400
+
+    print(
+        f"\n🔎 Research request: {question}"
+    )
+
+    try:
+
+        results = search_web(question)
+
+    except Exception as e:
+
+        print("❌ Search error:", e)
+
+        return jsonify({
+            "error": "Internet search failed",
+            "details": str(e)
+        }), 500
+
+
+    sources = []
+
+
+    for result in results:
+
+        try:
+
+            text = read_page(
+                result["url"]
+            )
+
+        except Exception as e:
+
+            print(
+                "⚠️ Page read error:",
+                e
+            )
+
+            text = ""
+
+
+        if text:
+
+            sources.append({
+
+                "title":
+                    result["title"],
+
+                "url":
+                    result["url"],
+
+                "text":
+                    text[:8000]
+
+            })
+
+
+    # ======================================
+    # Summary
+    # ======================================
+
+    summary = build_research_summary(
+        sources,
+        max_sentences_per_source=4,
+        max_total_sentences=12
+    )
+
+
+    if not summary:
+
+        summary = (
+            "No readable information "
+            "was found from the sources."
+        )
+
 
     return jsonify({
 
-        "status":
-            "online",
+        "question":
+            question,
 
-        "message":
-            "Research AI Backend is running"
+        "source_count":
+            len(sources),
+
+        "summary":
+            summary,
+
+        "sources":
+            sources
 
     })
+
+
+# ==========================================
+# Run
+# ==========================================
+
+if __name__ == "__main__":
+
+    app.run(
+        host="0.0.0.0",
+        port=int(
+            os.environ.get(
+                "PORT",
+                5000
+            )
+        )
+    )
 
 
 # ==========================================
