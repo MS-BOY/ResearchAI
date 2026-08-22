@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Research AI</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <header class="navbar">
+
+        <div class="logo">
+            Research<span>AI</span>
+        </div>
+
+        <div class="status">
+            <span></span>
+            Online
+        </div>
+
+    </header>
+
+
+    <main class="container">
+
+        <section class="hero">
+
+            <div class="badge">
+                AI RESEARCH ASSISTANT
+            </div>
+
+            <h1>
+                Ask anything.<br>
+                <span>Get a clear answer.</span>
+            </h1>
+
+            <p>
+                Search multiple sources, analyze information,
+                and get a simple summary.
+            </p>
+
+        </section>
+
+
+        <section class="search-box">
+            <div class="language-box">
+
+    <label>Answer language:</label>
+
+    <select id="language">
+
+        <option value="auto">
+            Auto Detect
+        </option>
+
+        <option value="bangla">
+            বাংলা
+        </option>
+
+        <option value="english">
+            English
+        </option>
+
+    </select>
+
+</div>
+
+            <textarea
+                id="question"
+                placeholder="What do you want to research?"
+            ></textarea>
+
+            <div class="search-bottom">
+
+                <div class="hint">
+                    🌐 Internet Research
+                </div>
+
+                <button id="researchBtn">
+                    Research →
+                </button>
+
+            </div>
+
+        </section>
+
+
+        <section id="result" class="result hidden">
+
+            <div class="result-header">
+
+                <h2>Research Result</h2>
+
+                <span id="sourceCount">
+                    0 Sources
+                </span>
+
+            </div>
+
+            <div id="summary">
+
+                Your research summary will appear here.
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <footer>
+
+        ResearchAI © 2026
+
+    </footer>
+
+
+    <script src="app.js"></script>
+
+</body>
+
+</html>
