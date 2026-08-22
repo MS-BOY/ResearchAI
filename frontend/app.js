@@ -1,5 +1,5 @@
 // ==========================================
-// DOM Elements
+// DOM
 // ==========================================
 
 const button = document.getElementById("researchBtn");
@@ -11,39 +11,19 @@ const language = document.getElementById("language");
 
 
 // ==========================================
-// API URL
-// ==========================================
-//
-// Render:
-// /research
-//
-// Local যদি Flask frontend serve করে:
-// /research
-//
-// আলাদা frontend server হলে:
-// http://127.0.0.1:5000/research
+// API
 // ==========================================
 
 const API_URL = "/research";
 
 
 // ==========================================
-// Button Event
+// Events
 // ==========================================
 
 if (button) {
-
-    button.addEventListener(
-        "click",
-        startResearch
-    );
-
+    button.addEventListener("click", startResearch);
 }
-
-
-// ==========================================
-// Enter Key
-// ==========================================
 
 if (question) {
 
@@ -59,17 +39,14 @@ if (question) {
                 event.preventDefault();
 
                 startResearch();
-
             }
-
         }
     );
-
 }
 
 
 // ==========================================
-// Main Research Function
+// Main Research
 // ==========================================
 
 async function startResearch() {
@@ -79,10 +56,6 @@ async function startResearch() {
         : "";
 
 
-    // ======================================
-    // Validate Question
-    // ======================================
-
     if (!text) {
 
         alert(
@@ -90,26 +63,16 @@ async function startResearch() {
         );
 
         return;
-
     }
 
-
-    // ======================================
-    // Show Result
-    // ======================================
 
     if (result) {
 
         result.classList.remove(
             "hidden"
         );
-
     }
 
-
-    // ======================================
-    // Loading State
-    // ======================================
 
     if (button) {
 
@@ -117,7 +80,6 @@ async function startResearch() {
 
         button.textContent =
             "Researching...";
-
     }
 
 
@@ -125,7 +87,6 @@ async function startResearch() {
 
         sourceCount.textContent =
             "Searching...";
-
     }
 
 
@@ -135,40 +96,21 @@ async function startResearch() {
 
             <div class="loading">
 
-                <p>
-                    🔎 ইন্টারনেটে খোঁজা হচ্ছে...
-                </p>
+                <p>🔎 Searching the internet...</p>
 
-                <br>
+                <p>📖 Reading sources...</p>
 
-                <p>
-                    📖 বিভিন্ন source পড়া হচ্ছে...
-                </p>
+                <p>🧠 Analyzing information...</p>
 
-                <br>
-
-                <p>
-                    🧠 তথ্য বিশ্লেষণ করা হচ্ছে...
-                </p>
-
-                <br>
-
-                <p>
-                    ✍️ Summary তৈরি করা হচ্ছে...
-                </p>
+                <p>✍️ Creating summary...</p>
 
             </div>
 
         `;
-
     }
 
 
     try {
-
-        // ==================================
-        // Selected Language
-        // ==================================
 
         const selectedLanguage =
             language
@@ -177,20 +119,16 @@ async function startResearch() {
 
 
         console.log(
-            "Question:",
+            "🔎 Question:",
             text
         );
 
 
         console.log(
-            "Language:",
+            "🌐 Language:",
             selectedLanguage
         );
 
-
-        // ==================================
-        // Send Request
-        // ==================================
 
         const response = await fetch(
             API_URL,
@@ -205,7 +143,6 @@ async function startResearch() {
 
                     "Accept":
                         "application/json"
-
                 },
 
                 body: JSON.stringify({
@@ -215,15 +152,13 @@ async function startResearch() {
 
                     language:
                         selectedLanguage
-
                 })
-
             }
         );
 
 
         // ==================================
-        // Read Response
+        // Read response safely
         // ==================================
 
         const contentType =
@@ -232,77 +167,75 @@ async function startResearch() {
             ) || "";
 
 
+        let data;
+
+
         if (
-            !contentType.includes(
+            contentType.includes(
                 "application/json"
             )
         ) {
 
-            throw new Error(
-                `Server returned ${response.status} instead of JSON.`
-            );
+            data = await response.json();
 
+        } else {
+
+            const raw =
+                await response.text();
+
+            throw new Error(
+                `Server returned non-JSON response (${response.status}): ${raw.slice(0, 300)}`
+            );
         }
 
 
-        const data =
-            await response.json();
-
-
         console.log(
-            "Backend response:",
+            "📦 Backend response:",
             data
         );
 
 
-        // ==================================
-        // Error Check
-        // ==================================
-
         if (!response.ok) {
 
             throw new Error(
-
                 data.error ||
+                data.message ||
                 `Research failed (${response.status})`
-
             );
-
         }
 
 
         // ==================================
-        // Language Info
+        // Language
         // ==================================
 
-        let languageHTML = "";
+        const answerLanguage =
+            data.answer_language ||
+            selectedLanguage ||
+            "auto";
 
 
-        if (
-            data.answer_language
-        ) {
+        const languageText = `
 
-            languageHTML = `
+            <div class="language-info">
 
-                <div class="language-info">
+                🌐 Answer language:
 
-                    🌐 Answer language:
+                <strong>
 
-                    <strong>
-                        ${escapeHTML(
-                            data.answer_language
-                        )}
-                    </strong>
+                    ${escapeHTML(
+                        answerLanguage
+                    )}
 
-                </div>
+                </strong>
 
-            `;
+            </div>
 
-        }
+        `;
 
 
         // ==================================
-        // Source Count
+        // Sources
         // ==================================
 
         const sources =
@@ -323,12 +256,11 @@ async function startResearch() {
 
             sourceCount.textContent =
                 `${totalSources} Sources`;
-
         }
 
 
         // ==================================
-        // No Sources
+        // No readable source
         // ==================================
 
         if (
@@ -339,45 +271,63 @@ async function startResearch() {
 
                 summary.innerHTML = `
 
-                    ${languageHTML}
+                    ${languageText}
 
                     <div class="error-box">
 
                         <h3>
-                            ❌ কোনো readable source পাওয়া যায়নি
+                            ⚠️ No readable sources
                         </h3>
 
                         <p>
 
-                            Internet থেকে
-                            readable information
-                            পাওয়া যায়নি।
+                            Search completed, but
+                            no webpage could be read.
+
+                        </p>
+
+                        <br>
+
+                        <p>
+
+                            🔎 Query:
+
+                            <strong>
+                                ${escapeHTML(
+                                    data.search_query ||
+                                    text
+                                )}
+                            </strong>
+
+                        </p>
+
+                        <br>
+
+                        <p>
+
+                            💡 Check the Render logs
+                            for "Search HTTP",
+                            "Search results" and
+                            "Page HTTP".
 
                         </p>
 
                     </div>
 
                 `;
-
             }
 
             return;
-
         }
 
 
         // ==================================
-        // Main HTML
+        // Build HTML
         // ==================================
 
         let html = "";
 
-
-        // ==================================
-        // Language
-        // ==================================
-
-        html += languageHTML;
+        html += languageText;
 
 
         // ==================================
@@ -410,108 +360,11 @@ async function startResearch() {
                 </div>
 
             `;
-
         }
 
 
         // ==================================
-        // Structured Research
-        // ==================================
-
-        if (
-            data.structured &&
-            typeof data.structured === "object"
-        ) {
-
-            const structured =
-                data.structured;
-
-
-            const keys =
-                Object.keys(
-                    structured
-                );
-
-
-            if (keys.length > 0) {
-
-                html += `
-
-                    <div class="structured-research">
-
-                        <div class="sources-title">
-
-                            📋 Research Details
-
-                        </div>
-
-                `;
-
-
-                keys.forEach(
-                    function (key) {
-
-                        const section =
-                            structured[key];
-
-
-                        if (
-                            !section ||
-                            !String(section).trim()
-                        ) {
-
-                            return;
-
-                        }
-
-
-                        const label =
-                            getIntentLabel(
-                                key
-                            );
-
-
-                        html += `
-
-                            <div class="research-section">
-
-                                <h3>
-
-                                    ${escapeHTML(
-                                        label
-                                    )}
-
-                                </h3>
-
-                                <p>
-
-                                    ${formatText(
-                                        section
-                                    )}
-
-                                </p>
-
-                            </div>
-
-                        `;
-
-                    }
-                );
-
-
-                html += `
-
-                    </div>
-
-                `;
-
-            }
-
-        }
-
-
-        // ==================================
-        // Research Result
+        // Research Info
         // ==================================
 
         html += `
@@ -524,13 +377,9 @@ async function startResearch() {
 
                 <p>
 
-                    মোট
-
-                    <strong>
-                        ${totalSources}
-                    </strong>
-
-                    টি readable source পাওয়া গেছে।
+                    ${totalSources}
+                    readable source(s)
+                    found.
 
                 </p>
 
@@ -540,7 +389,81 @@ async function startResearch() {
 
 
         // ==================================
-        // Find Video Sources
+        // Structured Research
+        // ==================================
+
+        if (
+            data.structured &&
+            typeof data.structured === "object"
+        ) {
+
+            const sections =
+                Object.entries(
+                    data.structured
+                );
+
+
+            if (sections.length > 0) {
+
+                html += `
+
+                    <div class="structured-research">
+
+                        <div class="sources-title">
+
+                            🧠 Research Details
+
+                        </div>
+
+                `;
+
+
+                sections.forEach(
+                    function (
+                        [key, value]
+                    ) {
+
+                        if (!value) {
+                            return;
+                        }
+
+
+                        html += `
+
+                            <div class="research-section">
+
+                                <h3>
+
+                                    ${escapeHTML(
+                                        formatIntentName(
+                                            key
+                                        )
+                                    )}
+
+                                </h3>
+
+                                <div>
+
+                                    ${formatText(
+                                        value
+                                    )}
+
+                                </div>
+
+                            </div>
+
+                        `;
+                    }
+                );
+
+
+                html += `</div>`;
+            }
+        }
+
+
+        // ==================================
+        // Video Sources
         // ==================================
 
         const videoSources =
@@ -550,14 +473,9 @@ async function startResearch() {
                     return isVideoSource(
                         source.url
                     );
-
                 }
             );
 
-
-        // ==================================
-        // YouTube / Video Examples
-        // ==================================
 
         if (
             videoSources.length > 0
@@ -569,7 +487,7 @@ async function startResearch() {
 
                     <div class="sources-title">
 
-                        🎥 YouTube / Video Examples
+                        🎥 Video Sources
 
                     </div>
 
@@ -582,16 +500,6 @@ async function startResearch() {
                     index
                 ) {
 
-                    const videoTitle =
-                        source.title ||
-                        "Video Example";
-
-
-                    const videoURL =
-                        source.url ||
-                        "#";
-
-
                     html += `
 
                         <div class="video-source">
@@ -600,42 +508,37 @@ async function startResearch() {
 
                                 ${index + 1}.
                                 ${escapeHTML(
-                                    videoTitle
+                                    source.title ||
+                                    "Video"
                                 )}
 
                             </h3>
 
                             <a
                                 href="${escapeAttribute(
-                                    videoURL
+                                    source.url
                                 )}"
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
 
-                                ▶ Watch video →
+                                ▶ Open video →
 
                             </a>
 
                         </div>
 
                     `;
-
                 }
             );
 
 
-            html += `
-
-                </div>
-
-            `;
-
+            html += `</div>`;
         }
 
 
         // ==================================
-        // Sources Title
+        // Sources
         // ==================================
 
         html += `
@@ -648,10 +551,6 @@ async function startResearch() {
 
         `;
 
-
-        // ==================================
-        // Display Sources
-        // ==================================
 
         sources.forEach(
             function (
@@ -666,7 +565,7 @@ async function startResearch() {
 
                 const text =
                     source.text ||
-                    "No readable text found.";
+                    "No readable text.";
 
 
                 const url =
@@ -693,21 +592,15 @@ async function startResearch() {
 
                         </h3>
 
-
                         ${
                             video
-                                ? `
-
-                                    <div class="video-badge">
-
-                                        🎥 Video source
-
-                                    </div>
-
-                                `
-                                : ""
+                            ? `
+                                <div class="video-badge">
+                                    🎥 Video source
+                                </div>
+                            `
+                            : ""
                         }
-
 
                         <p>
 
@@ -716,7 +609,6 @@ async function startResearch() {
                             )}
 
                         </p>
-
 
                         <a
                             href="${escapeAttribute(
@@ -728,8 +620,8 @@ async function startResearch() {
 
                             ${
                                 video
-                                    ? "▶ Watch source →"
-                                    : "Open source →"
+                                ? "▶ Open video →"
+                                : "Open source →"
                             }
 
                         </a>
@@ -737,34 +629,31 @@ async function startResearch() {
                     </div>
 
                 `;
-
             }
         );
 
 
         // ==================================
-        // Show Result
+        // Display
         // ==================================
 
         if (summary) {
 
             summary.innerHTML =
                 html;
-
         }
 
 
         console.log(
             "✅ Research completed"
         );
-
     }
 
 
     catch (error) {
 
         console.error(
-            "Research Error:",
+            "❌ Research error:",
             error
         );
 
@@ -773,7 +662,6 @@ async function startResearch() {
 
             sourceCount.textContent =
                 "Error";
-
         }
 
 
@@ -796,22 +684,10 @@ async function startResearch() {
 
                     </p>
 
-                    <br>
-
-                    <p>
-
-                        Backend অথবা
-                        research process-এ
-                        সমস্যা হয়েছে।
-
-                    </p>
-
                 </div>
 
             `;
-
         }
-
     }
 
 
@@ -819,16 +695,26 @@ async function startResearch() {
 
         if (button) {
 
-            button.disabled =
-                false;
+            button.disabled = false;
 
             button.textContent =
                 "Research →";
-
         }
-
     }
+}
 
+
+// ==========================================
+// Format Intent
+// ==========================================
+
+function formatIntentName(value) {
+
+    return String(value || "")
+        .replace(/[_-]/g, " ")
+        .replace(/\b\w/g, function (char) {
+            return char.toUpperCase();
+        });
 }
 
 
@@ -838,13 +724,8 @@ async function startResearch() {
 
 function formatText(text) {
 
-    if (
-        text === null ||
-        text === undefined
-    ) {
-
+    if (!text) {
         return "";
-
     }
 
 
@@ -854,7 +735,6 @@ function formatText(text) {
         );
 
 
-    // Bold markdown
     safeText =
         safeText.replace(
             /\*\*(.*?)\*\*/g,
@@ -862,7 +742,6 @@ function formatText(text) {
         );
 
 
-    // Normalize line endings
     safeText =
         safeText.replace(
             /\r\n/g,
@@ -870,7 +749,6 @@ function formatText(text) {
         );
 
 
-    // Multiple line breaks
     safeText =
         safeText.replace(
             /\n\n+/g,
@@ -878,7 +756,6 @@ function formatText(text) {
         );
 
 
-    // Single line break
     safeText =
         safeText.replace(
             /\n/g,
@@ -887,112 +764,30 @@ function formatText(text) {
 
 
     return safeText;
-
 }
 
 
 // ==========================================
-// Video Source Detector
+// Video Detection
 // ==========================================
 
 function isVideoSource(url) {
 
     if (!url) {
-
         return false;
-
     }
 
 
     const value =
-        String(url)
-            .toLowerCase();
+        String(url).toLowerCase();
 
 
     return (
-
-        value.includes(
-            "youtube.com"
-        ) ||
-
-        value.includes(
-            "youtu.be"
-        ) ||
-
-        value.includes(
-            "youtube-nocookie.com"
-        ) ||
-
-        value.includes(
-            "vimeo.com"
-        ) ||
-
-        value.includes(
-            "dailymotion.com"
-        )
-
+        value.includes("youtube.com") ||
+        value.includes("youtu.be") ||
+        value.includes("vimeo.com") ||
+        value.includes("dailymotion.com")
     );
-
-}
-
-
-// ==========================================
-// Intent Label
-// ==========================================
-
-function getIntentLabel(intent) {
-
-    const labels = {
-
-        "biography":
-            "👤 Biography",
-
-        "birth":
-            "🎂 Birth / Date of Birth",
-
-        "age":
-            "🔢 Age",
-
-        "career":
-            "💼 Career",
-
-        "songs":
-            "🎵 Songs",
-
-        "movies":
-            "🎬 Movies",
-
-        "education":
-            "🎓 Education",
-
-        "family":
-            "👨‍👩‍👧 Family",
-
-        "awards":
-            "🏆 Awards",
-
-        "net_worth":
-            "💰 Net Worth",
-
-        "personal_life":
-            "❤️ Personal Life"
-
-    };
-
-
-    return labels[intent] ||
-        String(intent)
-            .replace(
-                /_/g,
-                " "
-            )
-            .replace(
-                /\b\w/g,
-                function (char) {
-                    return char.toUpperCase();
-                }
-            );
-
 }
 
 
@@ -1006,9 +801,7 @@ function escapeHTML(text) {
         text === null ||
         text === undefined
     ) {
-
         return "";
-
     }
 
 
@@ -1023,20 +816,17 @@ function escapeHTML(text) {
 
 
     return div.innerHTML;
-
 }
 
 
 // ==========================================
-// Escape URL Attribute
+// Escape Attribute
 // ==========================================
 
 function escapeAttribute(url) {
 
     if (!url) {
-
         return "#";
-
     }
 
 
@@ -1066,5 +856,4 @@ function escapeAttribute(url) {
             />/g,
             "&gt;"
         );
-
 }
