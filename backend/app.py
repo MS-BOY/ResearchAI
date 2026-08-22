@@ -6,9 +6,9 @@ import sys
 import traceback
 
 
-# ==========================================
-# Project Directory
-# ==========================================
+# =========================================================
+# PROJECT DIRECTORY
+# =========================================================
 
 BASE_DIR = os.path.dirname(
     os.path.dirname(
@@ -20,39 +20,60 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 
-# ==========================================
-# Tools
-# ==========================================
-
-from tools.researcher import (
-    search_web,
-    read_page
-)
-
-from tools.question_analyzer import (
-    analyze_question,
-    get_intent_labels
-)
-
-from tools.summarizer import (
-    build_research_summary,
-    build_structured_research
-)
-
-from tools.translator import (
-    translate_to_bangla,
-    translate_to_english
-)
-
-
-# ==========================================
-# Flask App
-# ==========================================
+# =========================================================
+# FRONTEND
+# =========================================================
 
 FRONTEND_DIR = os.path.join(
     BASE_DIR,
     "frontend"
 )
+
+
+# =========================================================
+# IMPORT TOOLS
+# =========================================================
+
+try:
+
+    from tools.researcher import (
+        search_web,
+        read_page
+    )
+
+    from tools.question_analyzer import (
+        analyze_question,
+        get_intent_labels
+    )
+
+    from tools.summarizer import (
+        build_research_summary,
+        build_structured_research
+    )
+
+    from tools.translator import (
+        translate_to_bangla,
+        translate_to_english
+    )
+
+    TOOLS_LOADED = True
+
+    print("✅ All tools imported successfully")
+
+
+except Exception as e:
+
+    TOOLS_LOADED = False
+
+    print("❌ TOOL IMPORT ERROR")
+    print(str(e))
+
+    traceback.print_exc()
+
+
+# =========================================================
+# FLASK
+# =========================================================
 
 app = Flask(
     __name__,
@@ -63,88 +84,129 @@ app = Flask(
 CORS(app)
 
 
-# ==========================================
-# Language Detection
-# ==========================================
+# =========================================================
+# LANGUAGE DETECTION
+# =========================================================
 
 def detect_language(text):
+
+    text = str(text)
 
     bangla_count = 0
     english_count = 0
 
-    for char in str(text):
+    for char in text:
 
         if "\u0980" <= char <= "\u09FF":
+
             bangla_count += 1
 
         elif char.isalpha():
+
             english_count += 1
 
+
     if bangla_count > english_count:
+
         return "বাংলা"
+
 
     return "English"
 
 
-# ==========================================
-# Answer Language
-# ==========================================
+# =========================================================
+# ANSWER LANGUAGE
+# =========================================================
 
 def get_answer_language(
     requested_language,
     detected_language
 ):
 
-    requested_language = (
+    value = str(
         requested_language or "auto"
     ).lower().strip()
 
-    if requested_language in (
+
+    if value in (
         "bangla",
         "bn",
         "বাংলা"
     ):
+
         return "বাংলা"
 
-    if requested_language in (
+
+    if value in (
         "english",
         "en"
     ):
+
         return "English"
+
 
     return detected_language
 
 
-# ==========================================
-# Safe Translation
-# ==========================================
+# =========================================================
+# SAFE TRANSLATION
+# =========================================================
 
-def translate_text(text, language):
+def translate_text(
+    text,
+    language
+):
 
     if not text:
+
         return ""
+
 
     try:
 
         if language == "বাংলা":
-            return translate_to_bangla(text)
 
-        if language == "English":
-            return translate_to_english(text)
+            result = translate_to_bangla(
+                text
+            )
+
+        elif language == "English":
+
+            result = translate_to_english(
+                text
+            )
+
+        else:
+
+            result = text
+
+
+        if result:
+
+            return result
+
+
+        return text
+
 
     except Exception as e:
 
         print(
-            "⚠️ Translation error:",
-            e
+            "⚠️ Translation failed:",
+            str(e)
         )
 
-    return text
+        traceback.print_exc()
+
+        # Translation fail করলে original
+        # summary return হবে
+
+        return text
 
 
-# ==========================================
-# Frontend
-# ==========================================
+# =========================================================
+# HOME
+# =========================================================
 
 @app.route("/")
 def home():
@@ -154,11 +216,21 @@ def home():
         "index.html"
     )
 
-    if not os.path.exists(index_file):
+
+    if not os.path.exists(
+        index_file
+    ):
 
         return jsonify({
-            "error": "Frontend index.html not found"
+
+            "error":
+                "frontend/index.html not found",
+
+            "frontend_directory":
+                FRONTEND_DIR
+
         }), 404
+
 
     return send_from_directory(
         FRONTEND_DIR,
@@ -166,39 +238,194 @@ def home():
     )
 
 
-# ==========================================
-# Health
-# ==========================================
+# =========================================================
+# HEALTH
+# =========================================================
 
-@app.route("/api/health", methods=["GET"])
+@app.route(
+    "/api/health",
+    methods=["GET"]
+)
 def health():
 
     return jsonify({
-        "status": "online",
-        "message": "Research AI Backend is running"
+
+        "status":
+            "online",
+
+        "tools_loaded":
+            TOOLS_LOADED,
+
+        "message":
+            "Research AI Backend is running"
+
     })
 
 
-# ==========================================
-# Research
-# ==========================================
+# =========================================================
+# DEBUG / TEST SEARCH
+# =========================================================
 
-@app.route("/research", methods=["POST"])
-def research():
+@app.route(
+    "/api/test-search",
+    methods=["GET"]
+)
+def test_search():
 
-    data = request.get_json(
-        silent=True
-    )
-
-    if not isinstance(data, dict):
+    if not TOOLS_LOADED:
 
         return jsonify({
-            "error": "Invalid JSON request"
+
+            "success":
+                False,
+
+            "error":
+                "Tools could not be imported"
+
+        }), 500
+
+
+    try:
+
+        results = search_web(
+            "What is artificial intelligence?"
+        )
+
+
+        if not isinstance(
+            results,
+            list
+        ):
+
+            results = []
+
+
+        return jsonify({
+
+            "success":
+                True,
+
+            "result_count":
+                len(results),
+
+            "results":
+                results
+
+        })
+
+
+    except Exception as e:
+
+        print(
+            "❌ TEST SEARCH ERROR:"
+        )
+
+        traceback.print_exc()
+
+
+        return jsonify({
+
+            "success":
+                False,
+
+            "error":
+                str(e),
+
+            "type":
+                type(e).__name__
+
+        }), 500
+
+
+# =========================================================
+# RESEARCH API
+# =========================================================
+
+@app.route(
+    "/research",
+    methods=["POST"]
+)
+def research():
+
+    print("\n")
+    print("=" * 75)
+    print("🤖 NEW RESEARCH REQUEST")
+    print("=" * 75)
+
+
+    # =====================================================
+    # CHECK TOOLS
+    # =====================================================
+
+    if not TOOLS_LOADED:
+
+        return jsonify({
+
+            "error":
+                "Backend tools failed to load.",
+
+            "stage":
+                "import"
+
+        }), 500
+
+
+    # =====================================================
+    # JSON
+    # =====================================================
+
+    try:
+
+        data = request.get_json(
+            silent=True
+        )
+
+    except Exception as e:
+
+        print(
+            "❌ JSON ERROR:",
+            e
+        )
+
+        return jsonify({
+
+            "error":
+                "Invalid JSON request",
+
+            "details":
+                str(e),
+
+            "stage":
+                "json"
+
         }), 400
 
 
+    if not isinstance(
+        data,
+        dict
+    ):
+
+        return jsonify({
+
+            "error":
+                "Invalid JSON request",
+
+            "stage":
+                "json"
+
+        }), 400
+
+
+    # =====================================================
+    # QUESTION
+    # =====================================================
+
     question = str(
-        data.get("question", "")
+        data.get(
+            "question",
+            ""
+        )
     ).strip()
 
 
@@ -211,27 +438,46 @@ def research():
     if not question:
 
         return jsonify({
-            "error": "Question is required"
+
+            "error":
+                "Question is required",
+
+            "stage":
+                "validation"
+
         }), 400
 
 
-    print("\n" + "=" * 70)
-    print("🤖 RESEARCH AI")
-    print(f"❓ Question: {question}")
-
-
-    # ======================================
-    # Language
-    # ======================================
-
-    detected_language = detect_language(
-        question
+    print(
+        f"❓ Question: {question}"
     )
 
-    answer_language = get_answer_language(
-        requested_language,
-        detected_language
-    )
+
+    # =====================================================
+    # LANGUAGE
+    # =====================================================
+
+    try:
+
+        detected_language = detect_language(
+            question
+        )
+
+        answer_language = get_answer_language(
+            requested_language,
+            detected_language
+        )
+
+    except Exception as e:
+
+        print(
+            "❌ Language detection error:",
+            e
+        )
+
+        detected_language = "English"
+        answer_language = "English"
+
 
     print(
         f"🌐 Detected: {detected_language}"
@@ -242,9 +488,14 @@ def research():
     )
 
 
-    # ======================================
-    # Analyze
-    # ======================================
+    # =====================================================
+    # ANALYZE QUESTION
+    # =====================================================
+
+    print(
+        "\n🧠 Analyzing question..."
+    )
+
 
     try:
 
@@ -252,50 +503,65 @@ def research():
             question
         )
 
+
+        if not isinstance(
+            analysis,
+            dict
+        ):
+
+            analysis = {}
+
+
+        intents = analysis.get(
+            "intents",
+            []
+        )
+
+
+        search_query = analysis.get(
+            "search_query",
+            question
+        )
+
+
+        if not search_query:
+
+            search_query = question
+
+
+        print(
+            f"🎯 Intents: {intents}"
+        )
+
+        print(
+            f"🔎 Search query: {search_query}"
+        )
+
+
     except Exception as e:
 
         print(
-            "⚠️ Analyzer error:",
-            e
+            "⚠️ Question analyzer failed:"
         )
 
-        analysis = {
-            "intents": [],
-            "search_query": question
-        }
+        traceback.print_exc()
 
 
-    if not isinstance(analysis, dict):
-        analysis = {}
+        # Analyzer fail হলেও research চলবে
 
+        intents = []
 
-    intents = analysis.get(
-        "intents",
-        []
-    )
-
-    search_query = analysis.get(
-        "search_query",
-        question
-    )
-
-
-    if not search_query:
         search_query = question
 
 
-    print(
-        f"🎯 Intents: {intents}"
-    )
+    # =====================================================
+    # SEARCH
+    # =====================================================
 
     print(
-        f"🔎 Search query: {search_query}"
+        "\n🔎 Searching internet..."
     )
 
-
-    # ======================================
-    # Search
-    # ======================================
 
     try:
 
@@ -303,22 +569,41 @@ def research():
             search_query
         )
 
+
     except Exception as e:
 
         print(
-            "❌ Search error:",
-            e
+            "❌ SEARCH ERROR"
         )
 
         traceback.print_exc()
 
+
         return jsonify({
-            "error": "Internet search failed",
-            "details": str(e)
+
+            "error":
+                "Internet search failed",
+
+            "details":
+                str(e),
+
+            "type":
+                type(e).__name__,
+
+            "stage":
+                "search",
+
+            "question":
+                question
+
         }), 500
 
 
-    if not isinstance(results, list):
+    if not isinstance(
+        results,
+        list
+    ):
+
         results = []
 
 
@@ -327,31 +612,87 @@ def research():
     )
 
 
-    # ======================================
-    # Read Sources
-    # ======================================
+    # =====================================================
+    # NO SEARCH RESULTS
+    # =====================================================
+
+    if not results:
+
+        message = (
+
+            "কোনো search result পাওয়া যায়নি।"
+
+            if answer_language == "বাংলা"
+
+            else
+
+            "No search results were found."
+
+        )
+
+
+        return jsonify({
+
+            "question":
+                question,
+
+            "detected_language":
+                detected_language,
+
+            "answer_language":
+                answer_language,
+
+            "intents":
+                intents,
+
+            "search_query":
+                search_query,
+
+            "source_count":
+                0,
+
+            "summary":
+                message,
+
+            "structured":
+                {},
+
+            "sources":
+                []
+
+        })
+
+
+    # =====================================================
+    # READ WEB PAGES
+    # =====================================================
 
     sources = []
 
 
-    for index, result in enumerate(
+    for index, item in enumerate(
         results,
         1
     ):
 
-        if not isinstance(result, dict):
+        if not isinstance(
+            item,
+            dict
+        ):
+
             continue
 
 
         title = str(
-            result.get(
+            item.get(
                 "title",
                 "Untitled source"
             )
-        )
+        ).strip()
+
 
         url = str(
-            result.get(
+            item.get(
                 "url",
                 ""
             )
@@ -359,11 +700,20 @@ def research():
 
 
         if not url:
+
+            print(
+                "⚠️ Result has no URL"
+            )
+
             continue
 
 
         print(
-            f"\n📖 Reading {index}/{len(results)}"
+            "\n" + "-" * 60
+        )
+
+        print(
+            f"📖 Reading {index}/{len(results)}"
         )
 
         print(
@@ -381,12 +731,14 @@ def research():
                 url
             )
 
+
         except Exception as e:
 
             print(
-                "⚠️ Read error:",
-                e
+                "⚠️ read_page ERROR:"
             )
+
+            traceback.print_exc()
 
             text = ""
 
@@ -400,42 +752,65 @@ def research():
             continue
 
 
+        text = str(
+            text
+        ).strip()
+
+
+        if len(text) < 50:
+
+            print(
+                "⚠️ Text too short"
+            )
+
+            continue
+
+
         sources.append({
 
-            "title": title,
+            "title":
+                title,
 
-            "url": url,
+            "url":
+                url,
 
-            "text": text[:8000]
+            "text":
+                text[:8000]
 
         })
 
 
         print(
-            "✅ Source added"
+            f"✅ Source added: "
+            f"{len(text)} characters"
         )
 
 
-    # ======================================
-    # No Sources
-    # ======================================
+    print(
+        "\n📚 FINAL READABLE SOURCES:",
+        len(sources)
+    )
+
+
+    # =====================================================
+    # NO READABLE SOURCES
+    # =====================================================
 
     if not sources:
 
         if answer_language == "বাংলা":
 
             message = (
-                "কোনো readable source পাওয়া যায়নি। "
-                "Search engine ফলাফল দিয়েছে কিনা অথবা "
-                "website access করা যাচ্ছে কিনা পরীক্ষা করুন।"
+                "Search result পাওয়া গেছে, "
+                "কিন্তু কোনো webpage-এর readable text "
+                "পাওয়া যায়নি।"
             )
 
         else:
 
             message = (
-                "No readable sources were found. "
-                "The search engine may have returned no results "
-                "or the websites may have blocked automated access."
+                "Search results were found, "
+                "but no webpage contained readable text."
             )
 
 
@@ -452,7 +827,8 @@ def research():
 
         return jsonify({
 
-            "question": question,
+            "question":
+                question,
 
             "detected_language":
                 detected_language,
@@ -484,9 +860,9 @@ def research():
         })
 
 
-    # ======================================
-    # Summary
-    # ======================================
+    # =====================================================
+    # SUMMARY
+    # =====================================================
 
     print(
         "\n🧠 Creating summary..."
@@ -496,37 +872,56 @@ def research():
     try:
 
         summary = build_research_summary(
+
             sources,
+
             intents=intents,
+
             max_sentences_per_source=5,
+
             max_total_sentences=20
+
         )
 
+
     except TypeError:
+
+        print(
+            "⚠️ Summarizer does not support intents parameter"
+        )
+
 
         try:
 
             summary = build_research_summary(
+
                 sources,
+
                 max_sentences_per_source=5,
+
                 max_total_sentences=20
+
             )
 
         except Exception as e:
 
             print(
-                "⚠️ Summary fallback error:",
+                "❌ Summary fallback failed:",
                 e
             )
 
+            traceback.print_exc()
+
             summary = ""
+
 
     except Exception as e:
 
         print(
-            "⚠️ Summary error:",
-            e
+            "❌ Summary failed:"
         )
+
+        traceback.print_exc()
 
         summary = ""
 
@@ -534,27 +929,38 @@ def research():
     if not summary:
 
         summary = (
-            "No relevant information was found."
+            "Relevant information was found "
+            "but a summary could not be generated."
         )
 
 
-    # ======================================
-    # Structured Research
-    # ======================================
+    # =====================================================
+    # STRUCTURED
+    # =====================================================
+
+    print(
+        "\n🧩 Creating structured research..."
+    )
+
 
     try:
 
         structured = build_structured_research(
+
             sources,
+
             intents
+
         )
+
 
     except Exception as e:
 
         print(
-            "⚠️ Structured research error:",
-            e
+            "⚠️ Structured research failed:"
         )
+
+        traceback.print_exc()
 
         structured = {}
 
@@ -563,65 +969,90 @@ def research():
         structured,
         dict
     ):
+
         structured = {}
 
 
-    # ======================================
-    # Translate Summary
-    # ======================================
+    # =====================================================
+    # TRANSLATE SUMMARY
+    # =====================================================
 
-    translated_summary = translate_text(
-        summary,
-        answer_language
+    print(
+        "\n🌐 Translating summary..."
     )
 
 
-    # ======================================
-    # Translate Sections
-    # ======================================
+    translated_summary = translate_text(
+
+        summary,
+
+        answer_language
+
+    )
+
+
+    # =====================================================
+    # TRANSLATE STRUCTURED
+    # =====================================================
 
     translated_sections = {}
 
 
     for intent, sentences in structured.items():
 
-        if not sentences:
+        try:
+
+            if not sentences:
+
+                translated_sections[
+                    intent
+                ] = ""
+
+                continue
+
+
+            if isinstance(
+                sentences,
+                list
+            ):
+
+                section_text = "\n\n".join(
+                    str(x)
+                    for x in sentences
+                )
+
+            else:
+
+                section_text = str(
+                    sentences
+                )
+
 
             translated_sections[
                 intent
-            ] = ""
-
-            continue
-
-
-        if isinstance(
-            sentences,
-            list
-        ):
-
-            section_text = "\n\n".join(
-                str(item)
-                for item in sentences
+            ] = translate_text(
+                section_text,
+                answer_language
             )
 
-        else:
 
-            section_text = str(
+        except Exception as e:
+
+            print(
+                "⚠️ Section translation error:",
+                e
+            )
+
+            translated_sections[
+                intent
+            ] = str(
                 sentences
             )
 
 
-        translated_sections[
-            intent
-        ] = translate_text(
-            section_text,
-            answer_language
-        )
-
-
-    # ======================================
-    # Intent Labels
-    # ======================================
+    # =====================================================
+    # INTENT LABELS
+    # =====================================================
 
     try:
 
@@ -634,11 +1065,14 @@ def research():
         intent_labels = {}
 
 
-    # ======================================
-    # Final Response
-    # ======================================
+    # =====================================================
+    # FINAL RESPONSE
+    # =====================================================
 
     response = {
+
+        "success":
+            True,
 
         "question":
             question,
@@ -673,58 +1107,62 @@ def research():
     }
 
 
-    print("\n" + "=" * 70)
-
     print(
-        "✅ Research completed"
+        "\n" + "=" * 75
     )
 
     print(
-        f"📚 Readable sources: {len(sources)}"
+        "✅ RESEARCH COMPLETED"
     )
 
     print(
-        f"🎯 Intents: {intents}"
+        f"📚 Sources: {len(sources)}"
     )
 
     print(
-        f"🌐 Language: {answer_language}"
+        "=" * 75
     )
 
-    print("=" * 70)
+
+    return jsonify(
+        response
+    )
 
 
-    return jsonify(response)
+# =========================================================
+# GLOBAL ERROR HANDLER
+# =========================================================
 
+@app.errorhandler(Exception)
+def handle_exception(error):
 
-# ==========================================
-# Error Handler
-# ==========================================
+    print(
+        "\n❌ UNHANDLED SERVER ERROR"
+    )
 
-@app.errorhandler(404)
-def not_found(error):
+    traceback.print_exc()
+
 
     return jsonify({
-        "error": "Endpoint not found"
-    }), 404
 
+        "success":
+            False,
 
-@app.errorhandler(500)
-def internal_error(error):
+        "error":
+            "Internal server error",
 
-    print(
-        "❌ Internal server error:",
-        error
-    )
+        "details":
+            str(error),
 
-    return jsonify({
-        "error": "Internal server error"
+        "type":
+            type(error).__name__
+
     }), 500
 
 
-# ==========================================
-# Local Development
-# ==========================================
+# =========================================================
+# RUN LOCAL
+# =========================================================
 
 if __name__ == "__main__":
 
@@ -735,16 +1173,22 @@ if __name__ == "__main__":
         )
     )
 
+
     print(
         "\n🚀 Research AI Backend"
     )
 
     print(
-        f"🌐 http://127.0.0.1:{port}"
+        f"🌐 Port: {port}"
     )
 
+
     app.run(
+
         host="0.0.0.0",
+
         port=port,
+
         debug=False
+
     )
