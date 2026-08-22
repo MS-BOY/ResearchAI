@@ -1,3 +1,7 @@
+// ==========================================
+// DOM Elements
+// ==========================================
+
 const button =
     document.getElementById("researchBtn");
 
@@ -18,112 +22,223 @@ const language =
 
 
 // ==========================================
+// RENDER BACKEND API
+// ==========================================
+//
+// IMPORTANT:
+// Do NOT use:
+// http://127.0.0.1:5000/research
+//
+// That only works on your own PC.
+//
+// Render backend:
+// ==========================================
+
+const API_URL =
+    "https://researchai-v0f0.onrender.com/research";
+
+
+// ==========================================
 // Research Button
 // ==========================================
 
-button.addEventListener(
-    "click",
-    async function () {
+if (button) {
 
-        const text =
-            question.value.trim();
+    button.addEventListener(
+        "click",
+        startResearch
+    );
+
+}
 
 
-        // Empty question
-        if (!text) {
+// ==========================================
+// Enter Key Support
+// ==========================================
 
-            alert(
-                "Please enter a question."
-            );
+if (question) {
 
-            return;
+    question.addEventListener(
+        "keydown",
+        function (event) {
+
+            if (
+                event.key === "Enter" &&
+                !event.shiftKey
+            ) {
+
+                event.preventDefault();
+
+                startResearch();
+
+            }
+
         }
+    );
+
+}
 
 
-        // Show result
+// ==========================================
+// Main Research Function
+// ==========================================
+
+async function startResearch() {
+
+    const text =
+        question
+            ? question.value.trim()
+            : "";
+
+
+    // ======================================
+    // Empty question
+    // ======================================
+
+    if (!text) {
+
+        alert(
+            "Please enter a question."
+        );
+
+        return;
+
+    }
+
+
+    // ======================================
+    // Show result
+    // ======================================
+
+    if (result) {
+
         result.classList.remove(
             "hidden"
         );
 
+    }
 
-        // Loading state
+
+    // ======================================
+    // Loading
+    // ======================================
+
+    if (button) {
+
         button.disabled = true;
 
         button.textContent =
             "Researching...";
 
+    }
+
+
+    if (sourceCount) {
 
         sourceCount.textContent =
             "Searching...";
 
+    }
+
+
+    if (summary) {
 
         summary.innerHTML = `
 
             <div class="loading">
 
                 <p>
-                    🔎 ইন্টারনেটে খোঁজা হচ্ছে...
+                    🔎 Internet searching...
                 </p>
 
                 <br>
 
                 <p>
-                    📖 বিভিন্ন source পড়া হচ্ছে...
+                    📖 Reading sources...
                 </p>
 
                 <br>
 
                 <p>
-                    🧠 তথ্য বিশ্লেষণ করা হচ্ছে...
+                    🧠 Analyzing information...
+                </p>
+
+                <br>
+
+                <p>
+                    ✍️ Creating summary...
                 </p>
 
             </div>
 
         `;
 
-
-        try {
-
-            // ==================================
-            // Selected Language
-            // ==================================
-
-            const selectedLanguage =
-                language
-                    ? language.value
-                    : "auto";
+    }
 
 
-            console.log(
-                "Question:",
-                text
-            );
+    try {
 
-            console.log(
-                "Selected language:",
-                selectedLanguage
-            );
+        // ==================================
+        // Language
+        // ==================================
+
+        const selectedLanguage =
+            language
+                ? language.value
+                : "auto";
 
 
-            // ==================================
-            // Send request to Python
-            // ==================================
+        console.log(
+            "================================"
+        );
 
-            const response =
-                await fetch(
-                    "http://127.0.0.1:5000/research",
-                    {
+        console.log(
+            "🚀 RESEARCH REQUEST"
+        );
 
-                        method: "POST",
+        console.log(
+            "================================"
+        );
 
-                        headers: {
+        console.log(
+            "Question:",
+            text
+        );
 
-                            "Content-Type":
-                                "application/json"
+        console.log(
+            "Language:",
+            selectedLanguage
+        );
 
-                        },
+        console.log(
+            "API:",
+            API_URL
+        );
 
-                        body: JSON.stringify({
+
+        // ==================================
+        // Send request to Render
+        // ==================================
+
+        const response =
+            await fetch(
+                API_URL,
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json",
+
+                        "Accept":
+                            "application/json"
+
+                    },
+
+                    body:
+                        JSON.stringify({
 
                             question:
                                 text,
@@ -133,89 +248,153 @@ button.addEventListener(
 
                         })
 
-                    }
-                );
-
-
-            // ==================================
-            // Read JSON
-            // ==================================
-
-            const data =
-                await response.json();
-
-
-            // ==================================
-            // Error check
-            // ==================================
-
-            if (!response.ok) {
-
-                throw new Error(
-
-                    data.error ||
-                    "Research failed"
-
-                );
-
-            }
-
-
-            console.log(
-                "Backend response:",
-                data
+                }
             );
 
 
-            // ==================================
-            // Language information
-            // ==================================
+        // ==================================
+        // Read response as text first
+        // ==================================
+        //
+        // This is important.
+        //
+        // If Render sends HTML error page,
+        // response.json() itself will crash.
+        //
+        // ==================================
 
-            let languageText = "";
-
-
-            if (
-                data.answer_language
-            ) {
-
-                languageText = `
-
-                    <div class="language-info">
-
-                        🌐 Answer language:
-
-                        <strong>
-                            ${escapeHTML(
-                                data.answer_language
-                            )}
-                        </strong>
-
-                    </div>
-
-                `;
-
-            }
+        const rawResponse =
+            await response.text();
 
 
-            // ==================================
-            // Source Count
-            // ==================================
+        console.log(
+            "HTTP Status:",
+            response.status
+        );
+
+        console.log(
+            "Raw Backend Response:",
+            rawResponse
+        );
+
+
+        // ==================================
+        // Parse JSON
+        // ==================================
+
+        let data;
+
+        try {
+
+            data =
+                JSON.parse(
+                    rawResponse
+                );
+
+        }
+
+        catch (jsonError) {
+
+            throw new Error(
+
+                `Server returned ${response.status} ` +
+                `instead of JSON.\n\n` +
+                rawResponse.substring(
+                    0,
+                    500
+                )
+
+            );
+
+        }
+
+
+        // ==================================
+        // Backend error
+        // ==================================
+
+        if (!response.ok) {
+
+            throw new Error(
+
+                data.details ||
+                data.error ||
+                `Server error: ${response.status}`
+
+            );
+
+        }
+
+
+        console.log(
+            "✅ Backend response:",
+            data
+        );
+
+
+        // ==================================
+        // Language information
+        // ==================================
+
+        let languageText = "";
+
+
+        if (
+            data.answer_language
+        ) {
+
+            languageText = `
+
+                <div class="language-info">
+
+                    🌐 Answer language:
+
+                    <strong>
+                        ${escapeHTML(
+                            data.answer_language
+                        )}
+                    </strong>
+
+                </div>
+
+            `;
+
+        }
+
+
+        // ==================================
+        // Source count
+        // ==================================
+
+        const totalSources =
+            Number(
+                data.source_count || 0
+            );
+
+
+        if (sourceCount) {
 
             sourceCount.textContent =
-                `${data.source_count || 0} Sources`;
+                `${totalSources} Sources`;
+
+        }
 
 
-            // ==================================
-            // No Sources
-            // ==================================
+        // ==================================
+        // No sources
+        // ==================================
 
-            if (
+        if (
 
-                !data.sources ||
+            !Array.isArray(
+                data.sources
+            ) ||
 
-                data.sources.length === 0
+            data.sources.length === 0
 
-            ) {
+        ) {
+
+            if (summary) {
 
                 summary.innerHTML = `
 
@@ -223,54 +402,211 @@ button.addEventListener(
 
                     <div class="error-box">
 
+                        <h3>
+                            ⚠️ No readable sources
+                        </h3>
+
                         <p>
-                            ❌ কোনো readable
-                            source পাওয়া যায়নি।
+                            Search completed,
+                            but no webpage
+                            could be read.
+                        </p>
+
+                        <br>
+
+                        <p>
+
+                            🔎 Query:
+
+                            <strong>
+                                ${escapeHTML(
+                                    data.search_query ||
+                                    text
+                                )}
+                            </strong>
+
+                        </p>
+
+                        <br>
+
+                        <p>
+
+                            💡 Check the Render
+                            logs for search
+                            and page-reading errors.
+
                         </p>
 
                     </div>
 
                 `;
 
-                return;
-
             }
 
+            return;
 
-            // ==================================
-            // AI SUMMARY
-            // ==================================
-
-            let html = "";
+        }
 
 
-            html += languageText;
+        // ==================================
+        // Main HTML
+        // ==================================
+
+        let html = "";
 
 
-            /*
-             * Backend যদি AI summary পাঠায়
-             * তাহলে সেটাই প্রথমে দেখাবে।
-             */
+        // ==================================
+        // Language
+        // ==================================
 
-            if (data.summary) {
+        html +=
+            languageText;
+
+
+        // ==================================
+        // AI Summary
+        // ==================================
+
+        if (
+            data.summary &&
+            String(
+                data.summary
+            ).trim()
+        ) {
+
+            html += `
+
+                <div class="ai-summary">
+
+                    <div class="summary-title">
+
+                        🧠 AI Summary
+
+                    </div>
+
+                    <div class="summary-content">
+
+                        ${formatText(
+                            data.summary
+                        )}
+
+                    </div>
+
+                </div>
+
+            `;
+
+        }
+
+
+        // ==================================
+        // Research Result
+        // ==================================
+
+        html += `
+
+            <div class="research-intro">
+
+                <h2>
+                    📚 Research Result
+                </h2>
+
+                <p>
+
+                    মোট
+
+                    <strong>
+                        ${totalSources}
+                    </strong>
+
+                    টি readable source পাওয়া গেছে।
+
+                </p>
+
+            </div>
+
+        `;
+
+
+        // ==================================
+        // Sources title
+        // ==================================
+
+        html += `
+
+            <div class="sources-title">
+
+                🔗 Sources
+
+            </div>
+
+        `;
+
+
+        // ==================================
+        // Display sources
+        // ==================================
+
+        data.sources.forEach(
+
+            function (
+                source,
+                index
+            ) {
+
+                const title =
+                    source.title ||
+                    "Untitled source";
+
+
+                const url =
+                    source.url ||
+                    "#";
+
+
+                const sourceText =
+                    source.text ||
+                    "No readable text found.";
+
 
                 html += `
 
-                    <div class="ai-summary">
+                    <div class="source">
 
-                        <div class="summary-title">
+                        <h3>
 
-                            🧠 AI Summary
-
-                        </div>
-
-                        <div class="summary-content">
-
-                            ${formatText(
-                                data.summary
+                            ${index + 1}.
+                            ${escapeHTML(
+                                title
                             )}
 
-                        </div>
+                        </h3>
+
+
+                        <p>
+
+                            ${escapeHTML(
+                                sourceText
+                            )}
+
+                        </p>
+
+
+                        <a
+
+                            href="${escapeAttribute(
+                                url
+                            )}"
+
+                            target="_blank"
+
+                            rel="noopener noreferrer"
+
+                        >
+
+                            Open source →
+
+                        </a>
 
                     </div>
 
@@ -278,138 +614,58 @@ button.addEventListener(
 
             }
 
-
-            // ==================================
-            // Research Information
-            // ==================================
-
-            html += `
-
-                <div class="research-intro">
-
-                    <h2>
-                        📚 Research Result
-                    </h2>
-
-                    <p>
-
-                        মোট
-
-                        <strong>
-                            ${data.source_count}
-                        </strong>
-
-                        টি source পাওয়া গেছে।
-
-                    </p>
-
-                </div>
-
-            `;
+        );
 
 
-            // ==================================
-            // Sources
-            // ==================================
+        // ==================================
+        // Render result
+        // ==================================
 
-            html += `
-
-                <div class="sources-title">
-
-                    🔗 Sources
-
-                </div>
-
-            `;
-
-
-            data.sources.forEach(
-
-                function (
-                    source,
-                    index
-                ) {
-
-
-                    html += `
-
-                        <div class="source">
-
-                            <h3>
-
-                                ${index + 1}.
-                                ${escapeHTML(
-                                    source.title ||
-                                    "Untitled source"
-                                )}
-
-                            </h3>
-
-
-                            ${
-                                source.text
-                                ? `
-
-                                    <p>
-
-                                        ${escapeHTML(
-                                            source.text
-                                        )}
-
-                                    </p>
-
-                                `
-                                : `
-                                    <p>
-                                        No readable
-                                        text found.
-                                    </p>
-                                `
-                            }
-
-
-                            <a
-                                href="${escapeAttribute(
-                                    source.url
-                                )}"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-
-                                Open source →
-
-                            </a>
-
-                        </div>
-
-                    `;
-
-                }
-
-            );
-
-
-            // ==================================
-            // Show result
-            // ==================================
+        if (summary) {
 
             summary.innerHTML =
                 html;
 
-
         }
 
-        catch (error) {
 
-            console.error(
-                "Research Error:",
-                error
-            );
+        console.log(
+            "================================"
+        );
 
+        console.log(
+            "✅ RESEARCH COMPLETED"
+        );
+
+        console.log(
+            "Sources:",
+            totalSources
+        );
+
+        console.log(
+            "================================"
+        );
+
+    }
+
+
+    catch (error) {
+
+        console.error(
+            "❌ Research Error:",
+            error
+        );
+
+
+        if (sourceCount) {
 
             sourceCount.textContent =
                 "Error";
 
+        }
+
+
+        if (summary) {
 
             summary.innerHTML = `
 
@@ -421,28 +677,38 @@ button.addEventListener(
 
                     <p>
 
-                        Backend-এর সাথে
-                        connection অথবা
-                        research process-এ
-                        সমস্যা হয়েছে।
+                        ${escapeHTML(
+                            error.message ||
+                            "Unknown error"
+                        )}
 
                     </p>
 
                     <br>
 
                     <p>
-                        Python server চালু আছে
-                        কিনা নিশ্চিত করো।
+
+                        🔗 Backend:
+
+                        <br>
+
+                        <code>
+                            ${escapeHTML(
+                                API_URL
+                            )}
+                        </code>
+
                     </p>
 
                     <br>
 
-                    <code>
+                    <p>
 
-                        venv\\Scripts\\python.exe
-                        backend\\app.py
+                        💡 Open the backend
+                        health URL to check
+                        whether Render is online.
 
-                    </code>
+                    </p>
 
                 </div>
 
@@ -450,8 +716,12 @@ button.addEventListener(
 
         }
 
+    }
 
-        finally {
+
+    finally {
+
+        if (button) {
 
             button.disabled =
                 false;
@@ -462,7 +732,8 @@ button.addEventListener(
         }
 
     }
-);
+
+}
 
 
 // ==========================================
@@ -478,19 +749,34 @@ function formatText(text) {
     }
 
 
-    return escapeHTML(
-        text
-    )
+    let safeText =
+        escapeHTML(
+            String(text)
+        );
 
-    .replace(
-        /\n\n/g,
-        "<br><br>"
-    )
 
-    .replace(
-        /\n/g,
-        "<br>"
-    );
+    safeText =
+        safeText.replace(
+            /\r\n/g,
+            "\n"
+        );
+
+
+    safeText =
+        safeText.replace(
+            /\n\n+/g,
+            "<br><br>"
+        );
+
+
+    safeText =
+        safeText.replace(
+            /\n/g,
+            "<br>"
+        );
+
+
+    return safeText;
 
 }
 
@@ -501,13 +787,25 @@ function formatText(text) {
 
 function escapeHTML(text) {
 
+    if (
+        text === null ||
+        text === undefined
+    ) {
+
+        return "";
+
+    }
+
+
     const div =
         document.createElement(
             "div"
         );
 
+
     div.textContent =
-        text;
+        String(text);
+
 
     return div.innerHTML;
 
@@ -515,7 +813,7 @@ function escapeHTML(text) {
 
 
 // ==========================================
-// Escape URL
+// Escape URL Attribute
 // ==========================================
 
 function escapeAttribute(url) {
@@ -528,6 +826,30 @@ function escapeAttribute(url) {
 
 
     return String(url)
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+
+        .replace(
+            /'/g,
+            "&#39;"
+        )
+
+        .replace(
+            /</g,
+            "&lt;"
+        )
+
+        .replace(
+            />/g,
+            "&gt;"
+        );
+
 }
