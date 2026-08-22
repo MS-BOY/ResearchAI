@@ -1,83 +1,42 @@
-# tools/researcher.py
-
 import requests
+
 from bs4 import BeautifulSoup
-from urllib.parse import quote, urlparse, parse_qs, unquote
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+
+from urllib.parse import (
+    quote,
+    urlparse,
+    parse_qs,
+    unquote
+)
 
 
-# ==========================================
-# Session
-# ==========================================
+HEADERS = {
 
-def create_session():
+    "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36",
 
-    session = requests.Session()
+    "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 
-    retry = Retry(
-        total=2,
-        connect=2,
-        read=2,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"]
-    )
+    "Accept-Language":
+        "en-US,en;q=0.9"
 
-    adapter = HTTPAdapter(
-        max_retries=retry
-    )
+}
 
-    session.mount(
-        "http://",
-        adapter
-    )
-
-    session.mount(
-        "https://",
-        adapter
-    )
-
-    session.headers.update({
-
-        "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36",
-
-        "Accept":
-            "text/html,application/xhtml+xml,"
-            "application/xml;q=0.9,image/avif,"
-            "image/webp,*/*;q=0.8",
-
-        "Accept-Language":
-            "en-US,en;q=0.9"
-
-    })
-
-    return session
-
-
-session = create_session()
-
-
-# ==========================================
-# Get Real URL
-# ==========================================
 
 def get_real_url(url):
 
     if not url:
         return ""
 
-    url = url.strip()
+    url = str(url).strip()
 
-    # //example.com
     if url.startswith("//"):
-        return "https:" + url
 
-    # DuckDuckGo redirect
+        url = "https:" + url
+
     if "duckduckgo.com/l/?" in url:
 
         try:
@@ -90,10 +49,8 @@ def get_real_url(url):
 
             if "uddg" in params:
 
-                real_url = params["uddg"][0]
-
                 real_url = unquote(
-                    real_url
+                    params["uddg"][0]
                 )
 
                 return real_url.replace(
@@ -111,14 +68,10 @@ def get_real_url(url):
     return url
 
 
-# ==========================================
-# Search Web
-# ==========================================
-
 def search_web(question):
 
     print(
-        f"\n🔎 Searching internet for: {question}"
+        f"\n🔎 SEARCHING: {question}"
     )
 
     search_url = (
@@ -128,9 +81,19 @@ def search_web(question):
 
     try:
 
-        response = session.get(
+        response = requests.get(
+
             search_url,
+
+            headers=HEADERS,
+
             timeout=20
+
+        )
+
+        print(
+            "🔎 Search HTTP:",
+            response.status_code
         )
 
         response.raise_for_status()
@@ -139,201 +102,146 @@ def search_web(question):
 
         print(
             "❌ Search request failed:",
-            e
+            repr(e)
         )
 
         return []
-
-
-    print(
-        "✅ Search page received:",
-        response.status_code
-    )
-
 
     soup = BeautifulSoup(
         response.text,
         "html.parser"
     )
 
-
     results = []
 
-
     # ======================================
-    # Primary selector
+    # DuckDuckGo results
     # ======================================
 
-    items = soup.select(
+    for item in soup.select(
         ".result"
-    )
-
-
-    # ======================================
-    # Fallback selectors
-    # ======================================
-
-    if not items:
-
-        items = soup.select(
-            "div.result"
-        )
-
-
-    print(
-        f"📚 Search blocks found: {len(items)}"
-    )
-
-
-    for item in items:
+    ):
 
         link = item.select_one(
-            "a.result__a"
+            ".result__a"
         )
 
         if not link:
 
-            link = item.select_one(
-                ".result__title a"
-            )
-
-        if not link:
             continue
-
-
-        raw_url = link.get(
-            "href",
-            ""
-        )
-
-
-        real_url = get_real_url(
-            raw_url
-        )
-
-
-        if not real_url.startswith(
-            ("http://", "https://")
-        ):
-
-            continue
-
 
         title = link.get_text(
             " ",
             strip=True
         )
 
+        raw_url = link.get(
+            "href",
+            ""
+        )
 
-        if not title:
+        real_url = get_real_url(
+            raw_url
+        )
 
-            title = "Untitled source"
-
-
-        # Avoid duplicate URLs
-
-        if any(
-            r["url"] == real_url
-            for r in results
+        if not real_url.startswith(
+            "http"
         ):
 
             continue
 
-
         results.append({
 
             "title":
-                title,
+                title or "Untitled",
 
             "url":
                 real_url
 
         })
 
-
-        if len(results) >= 10:
-            break
-
-
-    print(
-        f"✅ Usable search results: {len(results)}"
-    )
-
-
     # ======================================
-    # Debug fallback
+    # Fallback selector
     # ======================================
 
     if not results:
 
         print(
-            "⚠️ DuckDuckGo returned no parsed results."
+            "⚠️ .result selector returned 0"
         )
 
-        # Try generic anchors
-
-        for link in soup.find_all(
-            "a",
-            href=True
+        for link in soup.select(
+            "a.result__a"
         ):
 
-            href = link.get(
-                "href",
-                ""
-            )
-
-            text = link.get_text(
+            title = link.get_text(
                 " ",
                 strip=True
             )
 
-
-            real_url = get_real_url(
-                href
+            raw_url = link.get(
+                "href",
+                ""
             )
 
+            real_url = get_real_url(
+                raw_url
+            )
 
-            if (
-                real_url.startswith(
-                    ("http://", "https://")
-                )
-                and text
+            if real_url.startswith(
+                "http"
             ):
-
-                # Skip DuckDuckGo itself
-
-                if "duckduckgo.com" in real_url:
-                    continue
-
-
-                if any(
-                    r["url"] == real_url
-                    for r in results
-                ):
-                    continue
-
 
                 results.append({
 
                     "title":
-                        text[:200],
+                        title or "Untitled",
 
                     "url":
                         real_url
 
                 })
 
+    # ======================================
+    # Remove duplicates
+    # ======================================
 
-                if len(results) >= 5:
-                    break
+    unique = []
 
+    seen = set()
 
-    return results[:10]
+    for result in results:
 
+        url = result["url"]
 
-# ==========================================
-# Read Web Page
-# ==========================================
+        if url in seen:
+
+            continue
+
+        seen.add(url)
+
+        unique.append(
+            result
+        )
+
+    print(
+        f"✅ SEARCH RESULTS: {len(unique)}"
+    )
+
+    for item in unique[:5]:
+
+        print(
+            "→",
+            item["title"]
+        )
+
+        print(
+            " ",
+            item["url"]
+        )
+
+    return unique[:8]
+
 
 def read_page(url):
 
@@ -341,290 +249,154 @@ def read_page(url):
 
         return ""
 
-
     print(
         f"🌐 Opening: {url}"
     )
 
-
     try:
 
-        response = session.get(
-            url,
-            timeout=20,
-            allow_redirects=True
-        )
+        response = requests.get(
 
+            url,
+
+            headers=HEADERS,
+
+            timeout=15,
+
+            allow_redirects=True
+
+        )
 
         print(
-            f"   HTTP: {response.status_code}"
+            "🌐 HTTP:",
+            response.status_code
         )
-
 
         if response.status_code != 200:
 
             return ""
 
+    except Exception as e:
 
-        content_type = response.headers.get(
-            "content-type",
+        print(
+            "❌ Page request failed:",
+            repr(e)
+        )
+
+        return ""
+
+    # ======================================
+    # Content type
+    # ======================================
+
+    content_type = (
+        response.headers
+        .get(
+            "Content-Type",
             ""
-        ).lower()
+        )
+        .lower()
+    )
 
+    if (
+        "text/html" not in content_type
+        and "application/xhtml" not in content_type
+    ):
 
-        # Only process HTML
+        print(
+            "⏭️ Not HTML:",
+            content_type
+        )
 
-        if (
-            "text/html" not in content_type
-            and
-            "application/xhtml" not in content_type
-        ):
+        return ""
 
-            print(
-                "⚠️ Not an HTML page:",
-                content_type
-            )
-
-            return ""
-
+    try:
 
         soup = BeautifulSoup(
             response.text,
             "html.parser"
         )
 
+    except Exception as e:
 
-        # ==================================
-        # Remove useless elements
-        # ==================================
-
-        for tag in soup([
-            "script",
-            "style",
-            "noscript",
-            "nav",
-            "footer",
-            "header",
-            "aside",
-            "form",
-            "svg",
-            "iframe"
-        ]):
-
-            tag.decompose()
-
-
-        # ==================================
-        # Article priority
-        # ==================================
-
-        article = soup.find(
-            "article"
+        print(
+            "❌ BeautifulSoup error:",
+            repr(e)
         )
 
+        return ""
 
-        if article:
+    # ======================================
+    # Remove unwanted
+    # ======================================
 
-            text = article.get_text(
+    for tag in soup.find_all([
+        "script",
+        "style",
+        "noscript",
+        "nav",
+        "footer",
+        "header",
+        "aside",
+        "form",
+        "svg"
+    ]):
+
+        tag.decompose()
+
+    # ======================================
+    # Article priority
+    # ======================================
+
+    article = soup.find(
+        "article"
+    )
+
+    if article:
+
+        text = article.get_text(
+            " ",
+            strip=True
+        )
+
+    else:
+
+        paragraphs = soup.find_all(
+            "p"
+        )
+
+        text = " ".join(
+
+            p.get_text(
                 " ",
                 strip=True
             )
 
-        else:
+            for p in paragraphs
 
-            # ==================================
-            # Main/content priority
-            # ==================================
-
-            main = (
-                soup.find("main")
-                or
-                soup.find(
-                    "div",
-                    attrs={
-                        "role": "main"
-                    }
-                )
+            if p.get_text(
+                strip=True
             )
 
-
-            if main:
-
-                text = main.get_text(
-                    " ",
-                    strip=True
-                )
-
-            else:
-
-                # ==================================
-                # Paragraph fallback
-                # ==================================
-
-                paragraphs = soup.find_all(
-                    "p"
-                )
-
-
-                texts = []
-
-
-                for p in paragraphs:
-
-                    value = p.get_text(
-                        " ",
-                        strip=True
-                    )
-
-
-                    if len(value) >= 30:
-
-                        texts.append(
-                            value
-                        )
-
-
-                text = " ".join(
-                    texts
-                )
-
-
-        # ==================================
-        # Clean text
-        # ==================================
-
-        text = " ".join(
-            text.split()
         )
 
-
-        # ==================================
-        # Minimum content check
-        # ==================================
-
-        if len(text) < 100:
-
-            print(
-                "⚠️ Page has too little readable text:",
-                len(text)
-            )
-
-            return ""
-
-
-        print(
-            f"✅ Extracted {len(text)} characters"
-        )
-
-
-        return text[:12000]
-
-
-    except requests.exceptions.Timeout:
-
-        print(
-            "⚠️ Page timeout"
-        )
-
-        return ""
-
-
-    except requests.exceptions.RequestException as e:
-
-        print(
-            "⚠️ Request error:",
-            e
-        )
-
-        return ""
-
-
-    except Exception as e:
-
-        print(
-            "⚠️ Page read failed:",
-            e
-        )
-
-        return ""
-
-
-# ==========================================
-# Standalone Research Test
-# ==========================================
-
-def research(question):
-
-    results = search_web(
-        question
+    text = " ".join(
+        text.split()
     )
 
-
-    if not results:
-
-        print(
-            "❌ No search results found."
-        )
-
-        return []
-
-
-    sources = []
-
-
-    for index, result in enumerate(
-        results,
-        1
-    ):
+    if len(text) < 100:
 
         print(
-            "\n" + "=" * 60
+            "⚠️ Very little text:",
+            len(text)
         )
 
-        print(
-            f"📄 SOURCE {index}"
-        )
-
-        print(
-            "Title:",
-            result["title"]
-        )
-
-        print(
-            "URL:",
-            result["url"]
-        )
-
-
-        text = read_page(
-            result["url"]
-        )
-
-
-        if text:
-
-            sources.append({
-
-                "title":
-                    result["title"],
-
-                "url":
-                    result["url"],
-
-                "text":
-                    text
-
-            })
-
+        return ""
 
     print(
-        "\n" + "=" * 60
+        "✅ Extracted:",
+        len(text),
+        "characters"
     )
 
-    print(
-        f"✅ Successfully readable sources: "
-        f"{len(sources)}"
-    )
-
-
-    return sources
+    return text[:8000]
