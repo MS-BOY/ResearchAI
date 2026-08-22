@@ -1,10 +1,31 @@
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    send_from_directory
+)
 
-from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
 import os
 import sys
 import traceback
+from urllib.parse import urlparse
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+APP_NAME = "Research AI Backend"
+
+DEFAULT_PORT = 5000
+
+MAX_REQUEST_SIZE = 2 * 1024 * 1024  # 2 MB
+
+MAX_SOURCES_TO_READ = 8
+
+MAX_SOURCE_TEXT = 8000
 
 
 # ============================================================
@@ -17,8 +38,13 @@ BASE_DIR = os.path.dirname(
     )
 )
 
+
 if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
+
+    sys.path.insert(
+        0,
+        BASE_DIR
+    )
 
 
 FRONTEND_DIR = os.path.join(
@@ -27,9 +53,20 @@ FRONTEND_DIR = os.path.join(
 )
 
 
+INDEX_FILE = os.path.join(
+    FRONTEND_DIR,
+    "index.html"
+)
+
+
 # ============================================================
 # IMPORT TOOLS
 # ============================================================
+
+TOOLS_LOADED = False
+
+research_tools_error = None
+
 
 try:
 
@@ -55,15 +92,22 @@ try:
 
     TOOLS_LOADED = True
 
-    print("✅ All research tools loaded successfully")
+    print(
+        "✅ All research tools loaded successfully"
+    )
 
 
-except Exception as e:
+except Exception as error:
 
-    TOOLS_LOADED = False
+    research_tools_error = str(error)
 
-    print("❌ Tool import error:")
-    print(str(e))
+    print(
+        "❌ Tool import error:"
+    )
+
+    print(
+        research_tools_error
+    )
 
     traceback.print_exc()
 
@@ -78,7 +122,33 @@ app = Flask(
     static_url_path=""
 )
 
-CORS(app)
+
+# Request size protection
+app.config[
+    "MAX_CONTENT_LENGTH"
+] = MAX_REQUEST_SIZE
+
+
+# ============================================================
+# CORS
+# ============================================================
+
+# Development + deployment friendly.
+#
+# পরে production frontend URL জানা গেলে
+# এখানে নির্দিষ্ট domain বসানো যাবে।
+
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": "*"
+        },
+        r"/research": {
+            "origins": "*"
+        }
+    }
+)
 
 
 # ============================================================
@@ -87,10 +157,14 @@ CORS(app)
 
 def detect_language(text):
 
-    text = str(text)
+    text = str(
+        text or ""
+    )
 
     bangla_count = 0
+
     english_count = 0
+
 
     for char in text:
 
@@ -102,9 +176,11 @@ def detect_language(text):
 
             english_count += 1
 
+
     if bangla_count > english_count:
 
         return "বাংলা"
+
 
     return "English"
 
@@ -122,6 +198,7 @@ def get_answer_language(
         requested_language or "auto"
     ).lower().strip()
 
+
     if requested_language in (
         "bangla",
         "bn",
@@ -130,12 +207,14 @@ def get_answer_language(
 
         return "বাংলা"
 
+
     if requested_language in (
         "english",
         "en"
     ):
 
         return "English"
+
 
     return detected_language
 
@@ -153,6 +232,7 @@ def translate_text(
 
         return ""
 
+
     try:
 
         if language == "বাংলা":
@@ -161,35 +241,62 @@ def translate_text(
                 text
             )
 
+
         if language == "English":
 
             return translate_to_english(
                 text
             )
 
-    except Exception as e:
+
+    except Exception as error:
 
         print(
             "⚠️ Translation error:",
-            str(e)
+            str(error)
         )
 
         traceback.print_exc()
 
+
     return text
+
+
+# ============================================================
+# URL VALIDATION
+# ============================================================
+
+def is_valid_http_url(url):
+
+    try:
+
+        parsed = urlparse(
+            str(url)
+        )
+
+        return (
+            parsed.scheme in (
+                "http",
+                "https"
+            )
+            and
+            bool(parsed.netloc)
+        )
+
+    except Exception:
+
+        return False
 
 
 # ============================================================
 # HOME / FRONTEND
 # ============================================================
 
-@app.route("/")
+@app.route(
+    "/",
+    methods=["GET"]
+)
 def home():
-
-    index_file = os.path.join(
-        FRONTEND_DIR,
-        "index.html"
-    )
 
     print(
         "🏠 Frontend request"
@@ -200,11 +307,14 @@ def home():
         FRONTEND_DIR
     )
 
-    if not os.path.exists(index_file):
+
+    if not os.path.isfile(
+        INDEX_FILE
+    ):
 
         print(
             "❌ index.html not found:",
-            index_file
+            INDEX_FILE
         )
 
         return jsonify({
@@ -213,9 +323,13 @@ def home():
                 "frontend/index.html not found",
 
             "frontend_directory":
-                FRONTEND_DIR
+                FRONTEND_DIR,
+
+            "base_directory":
+                BASE_DIR
 
         }), 404
+
 
     return send_from_directory(
         FRONTEND_DIR,
@@ -227,35 +341,96 @@ def home():
 # STATIC FILES
 # ============================================================
 
-@app.route("/<path:filename>")
+@app.route(
+    "/<path:filename>",
+    methods=["GET"]
+)
 def frontend_files(filename):
 
-    # API route-গুলো এখানে যাবে না
-    if filename.startswith("research"):
+    # API paths should never be treated as frontend files
+
+    if filename.startswith(
+        "api/"
+    ):
+
         return jsonify({
-            "error": "API endpoint not found"
+
+            "error":
+                "API endpoint not found"
+
         }), 404
 
-    if filename.startswith("api/"):
+
+    if filename.startswith(
+        "research"
+    ):
+
         return jsonify({
-            "error": "API endpoint not found"
-        }), 404
+
+            "error":
+                "Research endpoint requires POST"
+
+        }), 405
+
 
     file_path = os.path.join(
         FRONTEND_DIR,
         filename
     )
 
-    if os.path.isfile(file_path):
+
+    # Security:
+    # make sure requested path stays inside frontend directory
+
+    try:
+
+        frontend_real = os.path.realpath(
+            FRONTEND_DIR
+        )
+
+        file_real = os.path.realpath(
+            file_path
+        )
+
+        if not file_real.startswith(
+            frontend_real
+        ):
+
+            return jsonify({
+
+                "error":
+                    "Invalid file path"
+
+            }), 403
+
+    except Exception:
+
+        return jsonify({
+
+            "error":
+                "Invalid file path"
+
+        }), 403
+
+
+    if os.path.isfile(
+        file_real
+    ):
 
         return send_from_directory(
             FRONTEND_DIR,
             filename
         )
 
+
     return jsonify({
-        "error": "Frontend file not found",
-        "file": filename
+
+        "error":
+            "Frontend file not found",
+
+        "file":
+            filename
+
     }), 404
 
 
@@ -274,6 +449,9 @@ def health():
         "status":
             "online",
 
+        "service":
+            APP_NAME,
+
         "message":
             "Research AI Backend is running",
 
@@ -281,12 +459,18 @@ def health():
             TOOLS_LOADED,
 
         "frontend_exists":
-            os.path.exists(
-                os.path.join(
-                    FRONTEND_DIR,
-                    "index.html"
-                )
-            )
+            os.path.isfile(
+                INDEX_FILE
+            ),
+
+        "environment":
+            os.environ.get(
+                "RENDER",
+                "local"
+            ),
+
+        "python_version":
+            sys.version.split()[0]
 
     })
 
@@ -301,10 +485,17 @@ def health():
 )
 def research():
 
-    print("\n")
-    print("=" * 70)
-    print("🤖 RESEARCH AI REQUEST")
-    print("=" * 70)
+    print(
+        "\n" + "=" * 70
+    )
+
+    print(
+        "🤖 RESEARCH AI REQUEST"
+    )
+
+    print(
+        "=" * 70
+    )
 
 
     # ========================================================
@@ -319,7 +510,9 @@ def research():
                 "Research tools failed to load.",
 
             "details":
-                "Check Render logs for import errors."
+                research_tools_error
+                or
+                "Check server logs."
 
         }), 500
 
@@ -334,11 +527,11 @@ def research():
             silent=True
         )
 
-    except Exception as e:
+    except Exception as error:
 
         print(
             "❌ JSON error:",
-            str(e)
+            str(error)
         )
 
         return jsonify({
@@ -347,7 +540,7 @@ def research():
                 "Invalid JSON request",
 
             "details":
-                str(e)
+                str(error)
 
         }), 400
 
@@ -395,6 +588,21 @@ def research():
         }), 400
 
 
+    # Prevent unnecessarily huge questions
+
+    if len(question) > 5000:
+
+        return jsonify({
+
+            "error":
+                "Question is too long",
+
+            "max_length":
+                5000
+
+        }), 400
+
+
     print(
         f"❓ Question: {question}"
     )
@@ -412,6 +620,7 @@ def research():
     detected_language = detect_language(
         question
     )
+
 
     answer_language = get_answer_language(
         requested_language,
@@ -445,6 +654,7 @@ def research():
             question
         )
 
+
         if not isinstance(
             analysis,
             dict
@@ -452,11 +662,12 @@ def research():
 
             analysis = {}
 
-    except Exception as e:
+
+    except Exception as error:
 
         print(
             "⚠️ Question analyzer failed:",
-            str(e)
+            str(error)
         )
 
         traceback.print_exc()
@@ -468,6 +679,7 @@ def research():
         "intents",
         []
     )
+
 
     if not isinstance(
         intents,
@@ -493,6 +705,13 @@ def research():
     ).strip()
 
 
+    if len(search_query) > 1000:
+
+        search_query = search_query[
+            :1000
+        ]
+
+
     print(
         f"🎯 Intents: {intents}"
     )
@@ -510,23 +729,23 @@ def research():
         "\n🔎 Searching internet..."
     )
 
+
     try:
 
         results = search_web(
             search_query
         )
 
-    except Exception as e:
+
+    except Exception as error:
 
         print(
-            "❌ Search failed:"
-        )
-
-        print(
-            str(e)
+            "❌ Search failed:",
+            str(error)
         )
 
         traceback.print_exc()
+
 
         return jsonify({
 
@@ -534,7 +753,7 @@ def research():
                 "Internet search failed",
 
             "details":
-                str(e),
+                str(error),
 
             "question":
                 question,
@@ -542,7 +761,7 @@ def research():
             "search_query":
                 search_query
 
-        }), 500
+        }), 502
 
 
     if not isinstance(
@@ -574,8 +793,8 @@ def research():
             else
 
             "No search results were found."
-
         )
+
 
         return jsonify({
 
@@ -616,8 +835,15 @@ def research():
     sources = []
 
 
+    # Limit source count to avoid Render timeout
+
+    results_to_read = results[
+        :MAX_SOURCES_TO_READ
+    ]
+
+
     for index, result_item in enumerate(
-        results,
+        results_to_read,
         1
     ):
 
@@ -654,13 +880,24 @@ def research():
             continue
 
 
+        if not is_valid_http_url(
+            url
+        ):
+
+            print(
+                f"⚠️ Source {index}: Invalid URL"
+            )
+
+            continue
+
+
         print(
             "\n" + "-" * 60
         )
 
         print(
             f"📖 Reading source "
-            f"{index}/{len(results)}"
+            f"{index}/{len(results_to_read)}"
         )
 
         print(
@@ -682,14 +919,11 @@ def research():
                 url
             )
 
-        except Exception as e:
+        except Exception as error:
 
             print(
-                "❌ Page read exception:"
-            )
-
-            print(
-                str(e)
+                "❌ Page read exception:",
+                str(error)
             )
 
             traceback.print_exc()
@@ -729,7 +963,9 @@ def research():
                 url,
 
             "text":
-                text[:8000]
+                text[
+                    :MAX_SOURCE_TEXT
+                ]
 
         })
 
@@ -769,8 +1005,8 @@ def research():
 
             message = (
                 "Search result পাওয়া গেছে, "
-                "কিন্তু কোনো webpage থেকে readable text "
-                "পাওয়া যায়নি।"
+                "কিন্তু কোনো webpage থেকে "
+                "readable text পাওয়া যায়নি।"
             )
 
         else:
@@ -850,11 +1086,13 @@ def research():
 
         )
 
+
     except TypeError:
 
         print(
-            "⚠️ Summarizer does not support intents parameter."
+            "⚠️ Summarizer compatibility fallback"
         )
+
 
         try:
 
@@ -868,11 +1106,12 @@ def research():
 
             )
 
-        except Exception as e:
+
+        except Exception as error:
 
             print(
                 "❌ Summary fallback failed:",
-                str(e)
+                str(error)
             )
 
             traceback.print_exc()
@@ -880,11 +1119,11 @@ def research():
             summary = ""
 
 
-    except Exception as e:
+    except Exception as error:
 
         print(
             "❌ Summary failed:",
-            str(e)
+            str(error)
         )
 
         traceback.print_exc()
@@ -918,11 +1157,12 @@ def research():
 
         )
 
-    except Exception as e:
+
+    except Exception as error:
 
         print(
             "⚠️ Structured research failed:",
-            str(e)
+            str(error)
         )
 
         traceback.print_exc()
@@ -1015,11 +1255,11 @@ def research():
             intents
         )
 
-    except Exception as e:
+    except Exception as error:
 
         print(
             "⚠️ Intent label error:",
-            str(e)
+            str(error)
         )
 
         intent_labels = {}
@@ -1030,6 +1270,9 @@ def research():
     # ========================================================
 
     response = {
+
+        "success":
+            True,
 
         "question":
             question,
@@ -1122,6 +1365,9 @@ def handle_exception(error):
 
     return jsonify({
 
+        "success":
+            False,
+
         "error":
             "Internal server error",
 
@@ -1129,6 +1375,48 @@ def handle_exception(error):
             str(error)
 
     }), 500
+
+
+# ============================================================
+# 404 HANDLER
+# ============================================================
+
+@app.errorhandler(404)
+def handle_not_found(error):
+
+    return jsonify({
+
+        "success":
+            False,
+
+        "error":
+            "Endpoint not found",
+
+        "path":
+            request.path
+
+    }), 404
+
+
+# ============================================================
+# 413 HANDLER
+# ============================================================
+
+@app.errorhandler(413)
+def handle_too_large(error):
+
+    return jsonify({
+
+        "success":
+            False,
+
+        "error":
+            "Request is too large",
+
+        "max_size":
+            "2 MB"
+
+    }), 413
 
 
 # ============================================================
@@ -1140,13 +1428,13 @@ if __name__ == "__main__":
     port = int(
         os.environ.get(
             "PORT",
-            5000
+            DEFAULT_PORT
         )
     )
 
 
     print(
-        "\n🚀 Research AI Backend"
+        "\n🚀 " + APP_NAME
     )
 
     print(
@@ -1164,14 +1452,17 @@ if __name__ == "__main__":
 
     print(
         f"📄 index.html exists: "
-        f"{os.path.exists(
-            os.path.join(
-                FRONTEND_DIR,
-                "index.html"
-            )
-        )}"
+        f"{os.path.isfile(INDEX_FILE)}"
     )
 
+    print(
+        f"🧰 Tools loaded: "
+        f"{TOOLS_LOADED}"
+    )
+
+
+    # Local development only.
+    # Render production should use Gunicorn.
 
     app.run(
 
