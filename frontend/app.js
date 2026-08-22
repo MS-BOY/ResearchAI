@@ -1,4 +1,7 @@
-```javascript
+// ==========================================
+// Research AI - Frontend App
+// ==========================================
+
 // ==========================================
 // DOM Elements
 // ==========================================
@@ -15,21 +18,20 @@ const language = document.getElementById("language");
 // API URL
 // ==========================================
 //
-// Render এবং একই server-এ frontend/backend থাকলে
-// শুধু "/research" ব্যবহার করতে হবে.
+// Frontend এবং Flask একই Render service-এ থাকলে:
 //
-// Local:
+// /research
+//
+// Local development-এ:
 // http://127.0.0.1:5000/research
 //
-// Render:
-// /research
 // ==========================================
 
 const API_URL = "/research";
 
 
 // ==========================================
-// Research Button
+// Event Listeners
 // ==========================================
 
 if (button) {
@@ -41,10 +43,6 @@ if (button) {
 
 }
 
-
-// ==========================================
-// Enter Key Support
-// ==========================================
 
 if (question) {
 
@@ -75,14 +73,13 @@ if (question) {
 
 async function startResearch() {
 
-    const text =
-        question
-            ? question.value.trim()
-            : "";
+    const text = question
+        ? question.value.trim()
+        : "";
 
 
     // ======================================
-    // Empty Question
+    // Validate Question
     // ======================================
 
     if (!text) {
@@ -110,13 +107,17 @@ async function startResearch() {
 
 
     // ======================================
-    // Loading
+    // Loading State
     // ======================================
 
-    button.disabled = true;
+    if (button) {
 
-    button.textContent =
-        "Researching...";
+        button.disabled = true;
+
+        button.textContent =
+            "Researching...";
+
+    }
 
 
     if (sourceCount) {
@@ -130,7 +131,6 @@ async function startResearch() {
     if (summary) {
 
         summary.innerHTML = `
-
             <div class="loading">
 
                 <p>
@@ -156,7 +156,6 @@ async function startResearch() {
                 </p>
 
             </div>
-
         `;
 
     }
@@ -179,54 +178,82 @@ async function startResearch() {
             text
         );
 
-
         console.log(
-            "Selected language:",
+            "Language:",
             selectedLanguage
         );
 
 
         // ==================================
-        // Send Request To Backend
+        // Send Request
         // ==================================
 
-        const response =
-            await fetch(
-                API_URL,
-                {
+        const response = await fetch(
+            API_URL,
+            {
 
-                    method: "POST",
+                method: "POST",
 
-                    headers: {
+                headers: {
 
-                        "Content-Type":
-                            "application/json",
+                    "Content-Type":
+                        "application/json",
 
-                        "Accept":
-                            "application/json"
+                    "Accept":
+                        "application/json"
 
-                    },
+                },
 
-                    body: JSON.stringify({
+                body: JSON.stringify({
 
-                        question:
-                            text,
+                    question:
+                        text,
 
-                        language:
-                            selectedLanguage
+                    language:
+                        selectedLanguage
 
-                    })
+                })
 
-                }
+            }
+        );
+
+
+        // ==================================
+        // Read Response
+        // ==================================
+
+        const contentType =
+            response.headers.get(
+                "content-type"
             );
 
 
-        // ==================================
-        // Read JSON
-        // ==================================
+        let data;
 
-        const data =
-            await response.json();
+
+        if (
+            contentType &&
+            contentType.includes(
+                "application/json"
+            )
+        ) {
+
+            data =
+                await response.json();
+
+        }
+
+        else {
+
+            const rawText =
+                await response.text();
+
+            throw new Error(
+                "Server returned non-JSON response: " +
+                rawText.substring(0, 300)
+            );
+
+        }
 
 
         console.log(
@@ -252,32 +279,28 @@ async function startResearch() {
 
 
         // ==================================
-        // Language Information
+        // Answer Language
         // ==================================
 
-        let languageText = "";
+        let languageHTML = "";
 
 
         if (
             data.answer_language
         ) {
 
-            languageText = `
-
+            languageHTML = `
                 <div class="language-info">
 
                     🌐 Answer language:
 
                     <strong>
-
                         ${escapeHTML(
                             data.answer_language
                         )}
-
                     </strong>
 
                 </div>
-
             `;
 
         }
@@ -287,9 +310,17 @@ async function startResearch() {
         // Source Count
         // ==================================
 
+        const sources =
+            Array.isArray(data.sources)
+                ? data.sources
+                : [];
+
+
         const totalSources =
             Number(
-                data.source_count || 0
+                data.source_count ||
+                sources.length ||
+                0
             );
 
 
@@ -306,17 +337,14 @@ async function startResearch() {
         // ==================================
 
         if (
-            !Array.isArray(
-                data.sources
-            ) ||
-            data.sources.length === 0
+            sources.length === 0
         ) {
 
             if (summary) {
 
                 summary.innerHTML = `
 
-                    ${languageText}
+                    ${languageHTML}
 
                     <div class="error-box">
 
@@ -325,11 +353,9 @@ async function startResearch() {
                         </h3>
 
                         <p>
-
                             Internet থেকে
                             readable information
                             পাওয়া যায়নি।
-
                         </p>
 
                     </div>
@@ -354,7 +380,7 @@ async function startResearch() {
         // Language
         // ==================================
 
-        html += languageText;
+        html += languageHTML;
 
 
         // ==================================
@@ -383,6 +409,51 @@ async function startResearch() {
                         )}
 
                     </div>
+
+                </div>
+
+            `;
+
+        }
+
+
+        // ==================================
+        // Intent Information
+        // ==================================
+
+        if (
+            Array.isArray(
+                data.intents
+            ) &&
+            data.intents.length > 0
+        ) {
+
+            html += `
+
+                <div class="research-intro">
+
+                    <h2>
+                        🎯 Question Analysis
+                    </h2>
+
+                    <p>
+
+                        ${data.intents
+                            .map(
+                                function (intent) {
+
+                                    return `
+                                        <span class="intent-tag">
+                                            ${escapeHTML(intent)}
+                                        </span>
+                                    `;
+
+                                }
+                            )
+                            .join(" ")
+                        }
+
+                    </p>
 
                 </div>
 
@@ -421,11 +492,103 @@ async function startResearch() {
 
 
         // ==================================
-        // Find Video Sources
+        // Structured Research
+        // ==================================
+
+        if (
+            data.structured &&
+            typeof data.structured === "object"
+        ) {
+
+            const sections =
+                Object.entries(
+                    data.structured
+                );
+
+
+            if (
+                sections.length > 0
+            ) {
+
+                html += `
+
+                    <div class="structured-research">
+
+                        <div class="sources-title">
+
+                            📌 Detailed Information
+
+                        </div>
+
+                `;
+
+
+                sections.forEach(
+                    function (
+                        entry
+                    ) {
+
+                        const intent =
+                            entry[0];
+
+                        const content =
+                            entry[1];
+
+
+                        if (
+                            !content
+                        ) {
+
+                            return;
+
+                        }
+
+
+                        html += `
+
+                            <div class="structured-section">
+
+                                <h3>
+
+                                    ${escapeHTML(
+                                        intent
+                                    )}
+
+                                </h3>
+
+                                <div>
+
+                                    ${formatText(
+                                        content
+                                    )}
+
+                                </div>
+
+                            </div>
+
+                        `;
+
+                    }
+                );
+
+
+                html += `
+
+                    </div>
+
+                `;
+
+            }
+
+        }
+
+
+        // ==================================
+        // Video Sources
         // ==================================
 
         const videoSources =
-            data.sources.filter(
+            sources.filter(
                 function (source) {
 
                     return isVideoSource(
@@ -435,10 +598,6 @@ async function startResearch() {
                 }
             );
 
-
-        // ==================================
-        // Video Examples
-        // ==================================
 
         if (
             videoSources.length > 0
@@ -478,15 +637,11 @@ async function startResearch() {
                             </h3>
 
                             <a
-
                                 href="${escapeAttribute(
                                     source.url
                                 )}"
-
                                 target="_blank"
-
                                 rel="noopener noreferrer"
-
                             >
 
                                 ▶ Watch video →
@@ -529,8 +684,7 @@ async function startResearch() {
         // Display Sources
         // ==================================
 
-        data.sources.forEach(
-
+        sources.forEach(
             function (
                 source,
                 index
@@ -570,21 +724,17 @@ async function startResearch() {
 
                         </h3>
 
-
                         ${
                             video
                             ? `
-
                                 <div class="video-badge">
 
                                     🎥 Video source
 
                                 </div>
-
                             `
                             : ""
                         }
-
 
                         <p>
 
@@ -594,17 +744,12 @@ async function startResearch() {
 
                         </p>
 
-
                         <a
-
                             href="${escapeAttribute(
                                 url
                             )}"
-
                             target="_blank"
-
                             rel="noopener noreferrer"
-
                         >
 
                             ${
@@ -620,12 +765,11 @@ async function startResearch() {
                 `;
 
             }
-
         );
 
 
         // ==================================
-        // Show Result
+        // Show Final Result
         // ==================================
 
         if (summary) {
@@ -682,9 +826,9 @@ async function startResearch() {
 
                     <p>
 
-                        Backend server
-                        চালু আছে কিনা
-                        নিশ্চিত করো।
+                        Backend অথবা
+                        Render API-তে
+                        সমস্যা হয়েছে।
 
                     </p>
 
@@ -699,11 +843,15 @@ async function startResearch() {
 
     finally {
 
-        button.disabled =
-            false;
+        if (button) {
 
-        button.textContent =
-            "Research →";
+            button.disabled =
+                false;
+
+            button.textContent =
+                "Research →";
+
+        }
 
     }
 
@@ -729,7 +877,7 @@ function formatText(text) {
         );
 
 
-    // Bold
+    // Markdown bold
     safeText =
         safeText.replace(
             /\*\*(.*?)\*\*/g,
@@ -737,7 +885,7 @@ function formatText(text) {
         );
 
 
-    // Line breaks
+    // Normalize line breaks
     safeText =
         safeText.replace(
             /\r\n/g,
@@ -837,7 +985,7 @@ function escapeHTML(text) {
 
 
 // ==========================================
-// Escape URL
+// Escape URL Attribute
 // ==========================================
 
 function escapeAttribute(url) {
@@ -877,4 +1025,3 @@ function escapeAttribute(url) {
         );
 
 }
-```
