@@ -1,33 +1,41 @@
 """
-Fast Production Research Engine
-================================
-
-Compatible with current app.py
-
-Flow:
-    Question
-       ↓
-    DuckDuckGo + Wikipedia (parallel)
-       ↓
-    Select best web sources
-       ↓
-    Read 3 sources in parallel
-       ↓
-    Return article text to app.py
+Research AI - Fast Production Research Engine
+===============================================
 
 Public API:
     search_web(question)
     read_page(url)
     research(question)
 
-Optimized for:
+Flow:
+    User Question
+        ↓
+    DuckDuckGo Web Search
+        ↓
+    Filter / Rank / Deduplicate
+        ↓
+    Read up to 3 different websites
+        ↓
+    Clean article text
+        ↓
+    Return structured sources to app.py
+
+Designed for:
     - Flask
     - Gunicorn
     - Render
-    - No Playwright
     - Low memory
-    - Fast requests
-    - Parallel source reading
+    - Fast response
+    - Parallel requests
+    - No Playwright
+    - No Selenium
+    - No Google API required
+
+Important:
+    This is a web research/scraping engine.
+    Some websites may block bots, require JavaScript,
+    login, Cloudflare, or otherwise refuse scraping.
+    Those sources are skipped automatically.
 """
 
 from __future__ import annotations
@@ -62,26 +70,32 @@ from urllib3.util.retry import Retry
 
 MAX_QUERY_LENGTH = 500
 
-# Number of search results collected
-MAX_SEARCH_RESULTS = 8
+# Search result count
+MAX_SEARCH_RESULTS = 10
 
-# Number of actual articles read
+# Maximum actual articles to read
 MAX_SOURCES_TO_READ = 3
 
-# Parallel source readers
-MAX_WORKERS = 3
+# Parallel search workers
+SEARCH_WORKERS = 2
+
+# Parallel page readers
+READ_WORKERS = 3
 
 # Timeouts
 SEARCH_TIMEOUT = 5
-WIKI_TIMEOUT = 5
 PAGE_TIMEOUT = 6
+WIKI_TIMEOUT = 5
 
 # Content limits
 MAX_TEXT_LENGTH = 8000
 MAX_HTML_SIZE = 2 * 1024 * 1024
 
-# Minimum useful article text
-MIN_PAGE_TEXT = 150
+# Minimum useful article
+MIN_PAGE_TEXT = 180
+
+# Maximum response text per source
+MAX_SOURCE_CHARS = 8000
 
 # User agent
 USER_AGENT = (
@@ -95,20 +109,51 @@ USER_AGENT = (
 
 
 # ============================================================
-# BLOCKED DOMAINS
+# DOMAINS WE DO NOT SCRAPE
 # ============================================================
 
 BLOCKED_DOMAINS = {
     "youtube.com",
     "youtu.be",
+
     "facebook.com",
     "instagram.com",
+
     "tiktok.com",
+
     "twitter.com",
     "x.com",
+
     "linkedin.com",
+
     "pinterest.com",
+
     "reddit.com",
+
+    "telegram.me",
+    "t.me",
+}
+
+
+# ============================================================
+# PREFERRED / LOW QUALITY DOMAINS
+# ============================================================
+
+LOW_PRIORITY_DOMAINS = {
+    "quora.com",
+    "medium.com",
+}
+
+PREFERRED_DOMAINS = {
+    "wikipedia.org",
+    "britannica.com",
+    "reuters.com",
+    "bbc.com",
+    "bbc.co.uk",
+    "apnews.com",
+    "nasa.gov",
+    "who.int",
+    "un.org",
 }
 
 
@@ -121,7 +166,9 @@ _thread_local = threading.local()
 
 def create_session() -> requests.Session:
     """
-    Create optimized reusable HTTP session.
+    Create an optimized reusable HTTP session.
+
+    Each thread gets its own Session instance.
     """
 
     session = requests.Session()
@@ -130,7 +177,6 @@ def create_session() -> requests.Session:
         total=1,
         connect=1,
         read=1,
-
         backoff_factor=0.1,
 
         status_forcelist=(
@@ -156,19 +202,17 @@ def create_session() -> requests.Session:
     )
 
     session.mount(
-        "http://",
-        adapter,
-    )
-
-    session.mount(
         "https://",
         adapter,
     )
 
-    session.headers.update({
+    session.mount(
+        "http://",
+        adapter,
+    )
 
-        "User-Agent":
-            USER_AGENT,
+    session.headers.update({
+        "User-Agent": USER_AGENT,
 
         "Accept":
             "text/html,application/xhtml+xml,"
@@ -185,6 +229,9 @@ def create_session() -> requests.Session:
 
 
 def get_session() -> requests.Session:
+    """
+    Get thread-local HTTP session.
+    """
 
     session = getattr(
         _thread_local,
@@ -193,9 +240,7 @@ def get_session() -> requests.Session:
     )
 
     if session is None:
-
         session = create_session()
-
         _thread_local.session = session
 
     return session
@@ -206,6 +251,9 @@ def get_session() -> requests.Session:
 # ============================================================
 
 def clean_query(question: str) -> str:
+    """
+    Normalize user question.
+    """
 
     query = str(
         question or ""
@@ -221,7 +269,7 @@ def clean_query(question: str) -> str:
 
 
 # ============================================================
-# URL HELPERS
+# URL VALIDATION
 # ============================================================
 
 def is_valid_url(url: str) -> bool:
@@ -247,6 +295,10 @@ def is_valid_url(url: str) -> bool:
         return False
 
 
+# ============================================================
+# DOMAIN
+# ============================================================
+
 def get_domain(url: str) -> str:
 
     try:
@@ -261,7 +313,6 @@ def get_domain(url: str) -> str:
         )
 
         if domain.startswith("www."):
-
             domain = domain[4:]
 
         return domain
@@ -271,14 +322,38 @@ def get_domain(url: str) -> str:
         return ""
 
 
+def base_domain(url: str) -> str:
+
+    """
+    Return simplified domain.
+
+    Example:
+        news.example.com
+        -> example.com
+
+    This is intentionally simple and doesn't try
+    to implement the complete public suffix list.
+    """
+
+    domain = get_domain(url)
+
+    parts = domain.split(".")
+
+    if len(parts) >= 2:
+        return ".".join(parts[-2:])
+
+    return domain
+
+
+# ============================================================
+# DOMAIN FILTER
+# ============================================================
+
 def is_blocked_domain(url: str) -> bool:
 
-    domain = get_domain(
-        url
-    )
+    domain = get_domain(url)
 
     if not domain:
-
         return True
 
     return any(
@@ -290,10 +365,13 @@ def is_blocked_domain(url: str) -> bool:
     )
 
 
+# ============================================================
+# URL NORMALIZATION
+# ============================================================
+
 def normalize_url(url: str) -> str:
 
     if not url:
-
         return ""
 
     try:
@@ -303,10 +381,12 @@ def normalize_url(url: str) -> str:
         ).strip()
 
         if url.startswith("//"):
-
             url = "https:" + url
 
+        # ----------------------------------------------------
         # DuckDuckGo redirect
+        # ----------------------------------------------------
+
         if "duckduckgo.com/l/" in url:
 
             parsed = urlparse(
@@ -323,14 +403,19 @@ def normalize_url(url: str) -> str:
                     params["uddg"][0]
                 )
 
+        # ----------------------------------------------------
+        # Remove fragment
+        # ----------------------------------------------------
+
         parsed = urlparse(
             url
         )
 
-        # Remove fragment
-        url = parsed._replace(
+        parsed = parsed._replace(
             fragment=""
-        ).geturl()
+        )
+
+        url = parsed.geturl()
 
         return url
 
@@ -341,18 +426,29 @@ def normalize_url(url: str) -> str:
         )
 
 
+# ============================================================
+# URL KEY
+# ============================================================
+
 def result_key(url: str) -> str:
 
     try:
 
         parsed = urlparse(
-            url
+            normalize_url(url)
         )
 
+        domain = parsed.netloc.lower()
+
+        if domain.startswith("www."):
+            domain = domain[4:]
+
+        path = parsed.path.rstrip("/")
+
         return (
-            parsed.netloc.lower()
-            + parsed.path.rstrip("/")
-        )
+            domain
+            + path
+        ).lower()
 
     except Exception:
 
@@ -365,7 +461,9 @@ def result_key(url: str) -> str:
 # DUCKDUCKGO SEARCH
 # ============================================================
 
-def duckduckgo_search(query: str):
+def duckduckgo_search(
+    query: str,
+):
 
     print(
         f"🦆 DDG search: {query}"
@@ -388,7 +486,7 @@ def duckduckgo_search(query: str):
         if response.status_code != 200:
 
             print(
-                "⚠️ DDG status:",
+                "⚠️ DDG HTTP:",
                 response.status_code,
             )
 
@@ -400,7 +498,6 @@ def duckduckgo_search(query: str):
         )
 
         results = []
-
         seen = set()
 
         for item in soup.select(
@@ -419,11 +516,16 @@ def duckduckgo_search(query: str):
                 )
             )
 
+            snippet_element = (
+                item.select_one(
+                    ".result__snippet"
+                )
+            )
+
             if not (
                 title_element
                 and link_element
             ):
-
                 continue
 
             title = title_element.get_text(
@@ -441,44 +543,39 @@ def duckduckgo_search(query: str):
             )
 
             if not is_valid_url(url):
-
                 continue
 
             if is_blocked_domain(url):
-
                 continue
 
             key = result_key(url)
 
             if key in seen:
-
                 continue
 
             seen.add(key)
 
+            snippet = ""
+
+            if snippet_element:
+
+                snippet = snippet_element.get_text(
+                    " ",
+                    strip=True,
+                )
+
             results.append({
-
-                "title":
-                    title,
-
-                "url":
-                    url,
-
-                "source":
-                    "DuckDuckGo",
-
+                "title": title,
+                "url": url,
+                "source": "DuckDuckGo",
+                "snippet": snippet,
             })
 
-            if (
-                len(results)
-                >= MAX_SEARCH_RESULTS
-            ):
-
+            if len(results) >= MAX_SEARCH_RESULTS:
                 break
 
         print(
-            f"✅ DDG results: "
-            f"{len(results)}"
+            f"✅ DDG results: {len(results)}"
         )
 
         return results
@@ -514,7 +611,9 @@ def duckduckgo_search(query: str):
 # WIKIPEDIA SEARCH
 # ============================================================
 
-def wikipedia_search(query: str):
+def wikipedia_search(
+    query: str,
+):
 
     print(
         f"📚 Wikipedia search: {query}"
@@ -526,11 +625,8 @@ def wikipedia_search(query: str):
     )
 
     params = {
-        "q":
-            query,
-
-        "limit":
-            4,
+        "q": query,
+        "limit": 4,
     }
 
     try:
@@ -544,12 +640,6 @@ def wikipedia_search(query: str):
         )
 
         if response.status_code != 200:
-
-            print(
-                "⚠️ Wikipedia status:",
-                response.status_code,
-            )
-
             return []
 
         data = response.json()
@@ -571,7 +661,6 @@ def wikipedia_search(query: str):
             ).strip()
 
             if not title:
-
                 continue
 
             key = page.get(
@@ -579,7 +668,6 @@ def wikipedia_search(query: str):
             )
 
             if not key:
-
                 key = title.replace(
                     " ",
                     "_",
@@ -594,31 +682,17 @@ def wikipedia_search(query: str):
             )
 
             results.append({
-
-                "title":
-                    title,
-
-                "url":
-                    page_url,
-
-                "source":
-                    "Wikipedia",
-
-                "excerpt":
-                    page.get(
-                        "excerpt",
-                        "",
-                    ),
-
+                "title": title,
+                "url": page_url,
+                "source": "Wikipedia",
+                "snippet": page.get(
+                    "excerpt",
+                    "",
+                ),
             })
 
-            if len(results) >= 4:
-
-                break
-
         print(
-            f"✅ Wikipedia results: "
-            f"{len(results)}"
+            f"✅ Wikipedia results: {len(results)}"
         )
 
         return results
@@ -634,60 +708,49 @@ def wikipedia_search(query: str):
 
 
 # ============================================================
-# PARALLEL SEARCH
+# SEARCH IN PARALLEL
 # ============================================================
 
-def parallel_search(query: str):
+def parallel_search(
+    query: str,
+):
 
     ddg_results = []
-
     wiki_results = []
 
     with ThreadPoolExecutor(
-        max_workers=2
+        max_workers=SEARCH_WORKERS
     ) as executor:
 
-        futures = {
+        ddg_future = executor.submit(
+            duckduckgo_search,
+            query,
+        )
 
-            executor.submit(
-                duckduckgo_search,
-                query,
-            ):
-                "ddg",
+        wiki_future = executor.submit(
+            wikipedia_search,
+            query,
+        )
 
-            executor.submit(
-                wikipedia_search,
-                query,
-            ):
-                "wiki",
-        }
+        try:
+            ddg_results = (
+                ddg_future.result()
+            )
+        except Exception as error:
+            print(
+                "⚠️ DDG worker:",
+                error,
+            )
 
-        for future in as_completed(
-            futures
-        ):
-
-            source_type = futures[
-                future
-            ]
-
-            try:
-
-                data = future.result()
-
-                if source_type == "ddg":
-
-                    ddg_results = data
-
-                else:
-
-                    wiki_results = data
-
-            except Exception as error:
-
-                print(
-                    f"⚠️ {source_type} search error:",
-                    error,
-                )
+        try:
+            wiki_results = (
+                wiki_future.result()
+            )
+        except Exception as error:
+            print(
+                "⚠️ Wiki worker:",
+                error,
+            )
 
     return (
         ddg_results,
@@ -696,31 +759,120 @@ def parallel_search(query: str):
 
 
 # ============================================================
-# MERGE SEARCH RESULTS
+# RESULT SCORING
+# ============================================================
+
+def score_result(
+    item: dict,
+    query: str,
+) -> int:
+
+    url = item.get(
+        "url",
+        "",
+    )
+
+    title = item.get(
+        "title",
+        "",
+    ).lower()
+
+    domain = get_domain(
+        url
+    )
+
+    score = 0
+
+    # --------------------------------------------------------
+    # Prefer actual web articles over Wikipedia
+    # --------------------------------------------------------
+
+    if domain == "wikipedia.org":
+        score -= 10
+    else:
+        score += 10
+
+    # --------------------------------------------------------
+    # Preferred reliable domains
+    # --------------------------------------------------------
+
+    if domain in PREFERRED_DOMAINS:
+        score += 8
+
+    # --------------------------------------------------------
+    # Low priority domains
+    # --------------------------------------------------------
+
+    if domain in LOW_PRIORITY_DOMAINS:
+        score -= 4
+
+    # --------------------------------------------------------
+    # Article-like title
+    # --------------------------------------------------------
+
+    article_words = (
+        "news",
+        "report",
+        "guide",
+        "explained",
+        "analysis",
+        "research",
+        "study",
+        "update",
+        "latest",
+        "how",
+        "what",
+        "why",
+    )
+
+    for word in article_words:
+
+        if word in title:
+            score += 1
+
+    # --------------------------------------------------------
+    # Query word matching
+    # --------------------------------------------------------
+
+    query_words = set(
+        re.findall(
+            r"[a-zA-Z0-9]{3,}",
+            query.lower(),
+        )
+    )
+
+    for word in query_words:
+
+        if word in title:
+            score += 2
+
+    return score
+
+
+# ============================================================
+# MERGE + DEDUPLICATE + DIVERSIFY
 # ============================================================
 
 def merge_results(
     ddg_results,
     wiki_results,
+    query="",
 ):
 
-    final = []
+    candidates = []
 
-    seen = set()
+    seen_urls = set()
 
-    # Web sources first
-    combined = (
+    # DDG first
+    for item in (
         ddg_results
         + wiki_results
-    )
-
-    for item in combined:
+    ):
 
         if not isinstance(
             item,
             dict,
         ):
-
             continue
 
         url = normalize_url(
@@ -731,49 +883,92 @@ def merge_results(
         )
 
         if not is_valid_url(url):
-
             continue
 
         if is_blocked_domain(url):
-
             continue
 
         key = result_key(url)
 
-        if key in seen:
-
+        if key in seen_urls:
             continue
 
-        seen.add(key)
+        seen_urls.add(key)
+
+        item = dict(item)
 
         item["url"] = url
+
+        item["_score"] = score_result(
+            item,
+            query,
+        )
+
+        candidates.append(
+            item
+        )
+
+    # --------------------------------------------------------
+    # Sort by quality
+    # --------------------------------------------------------
+
+    candidates.sort(
+        key=lambda x: x.get(
+            "_score",
+            0,
+        ),
+        reverse=True,
+    )
+
+    # --------------------------------------------------------
+    # Domain diversity
+    # --------------------------------------------------------
+
+    final = []
+
+    used_domains = set()
+
+    # First pass:
+    # one source per domain
+    for item in candidates:
+
+        domain = base_domain(
+            item["url"]
+        )
+
+        if domain in used_domains:
+            continue
+
+        used_domains.add(domain)
+
+        item.pop(
+            "_score",
+            None,
+        )
 
         final.append(
             item
         )
 
-        if (
-            len(final)
-            >= MAX_SEARCH_RESULTS
-        ):
-
+        if len(final) >= MAX_SEARCH_RESULTS:
             break
 
     return final
 
 
 # ============================================================
-# PUBLIC SEARCH FUNCTION
+# PUBLIC SEARCH
 # ============================================================
 
-def search_web(question):
+def search_web(
+    question,
+):
 
     query = clean_query(
         question
     )
 
     if not query:
-
         return []
 
     print(
@@ -802,7 +997,12 @@ def search_web(question):
     results = merge_results(
         ddg_results,
         wiki_results,
+        query,
     )
+
+    # --------------------------------------------------------
+    # Fallback
+    # --------------------------------------------------------
 
     if not results:
 
@@ -815,8 +1015,7 @@ def search_web(question):
         )
 
     print(
-        f"✅ Search results: "
-        f"{len(results)}"
+        f"✅ Search results: {len(results)}"
     )
 
     return results
@@ -842,6 +1041,7 @@ UNWANTED_TAGS = (
     "input",
     "select",
     "textarea",
+    "template",
 )
 
 
@@ -857,20 +1057,24 @@ def clean_html(
 
 
 # ============================================================
-# ARTICLE EXTRACTION
+# CONTENT SELECTORS
 # ============================================================
 
 CONTENT_SELECTORS = (
 
+    # Schema.org article
+    "[itemprop='articleBody']",
+
+    # Common article containers
     "article",
 
     "main",
 
-    "[itemprop='articleBody']",
-
     ".article-body",
 
     ".article-content",
+
+    ".article__body",
 
     ".post-content",
 
@@ -880,9 +1084,17 @@ CONTENT_SELECTORS = (
 
     ".story-body",
 
+    ".story-content",
+
     ".content-body",
 
     ".page-content",
+
+    ".news-content",
+
+    ".article-text",
+
+    ".article__content",
 
     "#article",
 
@@ -895,6 +1107,27 @@ CONTENT_SELECTORS = (
 )
 
 
+# ============================================================
+# TEXT NORMALIZATION
+# ============================================================
+
+def normalize_text(
+    text: str,
+) -> str:
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text or "",
+    )
+
+    return text.strip()
+
+
+# ============================================================
+# ARTICLE TEXT EXTRACTION
+# ============================================================
+
 def extract_text(
     soup: BeautifulSoup,
 ) -> str:
@@ -904,33 +1137,43 @@ def extract_text(
     )
 
     # --------------------------------------------------------
-    # Try article containers
+    # Best content containers
     # --------------------------------------------------------
+
+    best_text = ""
 
     for selector in CONTENT_SELECTORS:
 
-        element = soup.select_one(
-            selector
-        )
+        try:
 
-        if not element:
+            elements = soup.select(
+                selector
+            )
+
+        except Exception:
 
             continue
 
-        text = element.get_text(
-            " ",
-            strip=True,
-        )
+        for element in elements:
 
-        text = " ".join(
-            text.split()
-        )
+            text = normalize_text(
+                element.get_text(
+                    " ",
+                    strip=True,
+                )
+            )
 
-        if len(text) >= MIN_PAGE_TEXT:
+            if len(text) > len(
+                best_text
+            ):
 
-            return text[
-                :MAX_TEXT_LENGTH
-            ]
+                best_text = text
+
+    if len(best_text) >= MIN_PAGE_TEXT:
+
+        return best_text[
+            :MAX_TEXT_LENGTH
+        ]
 
     # --------------------------------------------------------
     # Paragraph fallback
@@ -946,33 +1189,27 @@ def extract_text(
 
     for paragraph in paragraphs:
 
-        value = paragraph.get_text(
-            " ",
-            strip=True,
+        value = normalize_text(
+            paragraph.get_text(
+                " ",
+                strip=True,
+            )
         )
 
-        value = " ".join(
-            value.split()
-        )
-
-        if len(value) < 30:
-
+        if len(value) < 35:
             continue
 
         parts.append(
             value
         )
 
-        total += len(
-            value
-        )
+        total += len(value)
 
         if total >= MAX_TEXT_LENGTH:
-
             break
 
-    return " ".join(
-        parts
+    return normalize_text(
+        " ".join(parts)
     )[
         :MAX_TEXT_LENGTH
     ]
@@ -996,7 +1233,6 @@ def read_wikipedia_page(
         )
 
         if response.status_code != 200:
-
             return ""
 
         soup = BeautifulSoup(
@@ -1014,9 +1250,11 @@ def read_wikipedia_page(
                 content
             )
 
-            text = content.get_text(
-                " ",
-                strip=True,
+            text = normalize_text(
+                content.get_text(
+                    " ",
+                    strip=True,
+                )
             )
 
         else:
@@ -1025,12 +1263,7 @@ def read_wikipedia_page(
                 soup
             )
 
-        text = " ".join(
-            text.split()
-        )
-
         if len(text) < MIN_PAGE_TEXT:
-
             return ""
 
         return text[
@@ -1048,25 +1281,21 @@ def read_wikipedia_page(
 
 
 # ============================================================
-# READ PAGE
+# READ WEB PAGE
 # ============================================================
 
-def read_page(url):
-
-    if not url:
-
-        return ""
+def read_page(
+    url: str,
+) -> str:
 
     url = normalize_url(
         url
     )
 
     if not is_valid_url(url):
-
         return ""
 
     if is_blocked_domain(url):
-
         return ""
 
     domain = get_domain(
@@ -1077,7 +1306,10 @@ def read_page(url):
         f"🌐 Reading: {url}"
     )
 
+    # --------------------------------------------------------
     # Wikipedia
+    # --------------------------------------------------------
+
     if (
         domain == "wikipedia.org"
         or domain.endswith(
@@ -1094,21 +1326,20 @@ def read_page(url):
         session = get_session()
 
         response = session.get(
-
             url,
-
             timeout=PAGE_TIMEOUT,
-
             allow_redirects=True,
-
             stream=True,
         )
+
+        # ----------------------------------------------------
+        # HTTP status
+        # ----------------------------------------------------
 
         if response.status_code != 200:
 
             print(
-                f"⚠️ HTTP "
-                f"{response.status_code}"
+                f"⚠️ HTTP {response.status_code}"
             )
 
             return ""
@@ -1127,17 +1358,20 @@ def read_page(url):
         )
 
         if (
-            "text/html"
-            not in content_type
+            "text/html" not in content_type
             and
             "application/xhtml+xml"
             not in content_type
         ):
 
+            print(
+                "⏭️ Not HTML"
+            )
+
             return ""
 
         # ----------------------------------------------------
-        # Size check
+        # Content size
         # ----------------------------------------------------
 
         content_length = (
@@ -1179,7 +1413,6 @@ def read_page(url):
         ):
 
             if not chunk:
-
                 continue
 
             data.extend(
@@ -1187,15 +1420,13 @@ def read_page(url):
             )
 
             if len(data) >= MAX_HTML_SIZE:
-
                 break
 
         if not data:
-
             return ""
 
         # ----------------------------------------------------
-        # Parse
+        # Parse HTML
         # ----------------------------------------------------
 
         soup = BeautifulSoup(
@@ -1207,8 +1438,8 @@ def read_page(url):
             soup
         )
 
-        text = " ".join(
-            text.split()
+        text = normalize_text(
+            text
         )
 
         if len(text) < MIN_PAGE_TEXT:
@@ -1220,12 +1451,11 @@ def read_page(url):
             return ""
 
         print(
-            f"✅ Extracted "
-            f"{len(text)} chars"
+            f"✅ Extracted {len(text)} chars"
         )
 
         return text[
-            :MAX_TEXT_LENGTH
+            :MAX_SOURCE_CHARS
         ]
 
     except requests.exceptions.Timeout:
@@ -1264,16 +1494,17 @@ def read_page(url):
 
 
 # ============================================================
-# READ SOURCE
+# READ ONE SOURCE
 # ============================================================
 
-def read_source(item):
+def read_source(
+    item: dict,
+):
 
     if not isinstance(
         item,
         dict,
     ):
-
         return None
 
     url = str(
@@ -1284,7 +1515,6 @@ def read_source(item):
     ).strip()
 
     if not url:
-
         return None
 
     text = read_page(
@@ -1292,92 +1522,178 @@ def read_source(item):
     )
 
     if not text:
-
         return None
 
     return {
+        "title": str(
+            item.get(
+                "title",
+                "Untitled source",
+            )
+        ).strip(),
 
-        "title":
-            str(
-                item.get(
-                    "title",
-                    "Untitled source",
-                )
-            ).strip(),
+        "url": url,
 
-        "url":
-            url,
+        "text": text,
 
-        "text":
-            text,
+        "source": str(
+            item.get(
+                "source",
+                "Web",
+            )
+        ).strip(),
 
-        "source":
-            str(
-                item.get(
-                    "source",
-                    "Web",
-                )
-            ).strip(),
-
+        "snippet": str(
+            item.get(
+                "snippet",
+                "",
+            )
+        ).strip(),
     }
 
 
 # ============================================================
-# FULL RESEARCH
+# SOURCE QUALITY CHECK
 # ============================================================
 
-def research(question):
+def is_useful_source(
+    source: dict,
+) -> bool:
+
+    if not source:
+        return False
+
+    text = source.get(
+        "text",
+        "",
+    )
+
+    url = source.get(
+        "url",
+        "",
+    )
+
+    if not is_valid_url(url):
+        return False
+
+    if len(text) < MIN_PAGE_TEXT:
+        return False
+
+    return True
+
+
+# ============================================================
+# FULL RESEARCH API
+# ============================================================
+
+def research(
+    question,
+):
+
+    query = clean_query(
+        question
+    )
+
+    if not query:
+        return []
+
+    print(
+        "\n" + "=" * 60
+    )
+
+    print(
+        "🚀 RESEARCH START"
+    )
+
+    print(
+        "Question:",
+        query,
+    )
+
+    print(
+        "=" * 60
+    )
+
+    # --------------------------------------------------------
+    # SEARCH
+    # --------------------------------------------------------
 
     results = search_web(
-        question
+        query
     )
 
     if not results:
 
+        print(
+            "❌ No search results"
+        )
+
         return []
 
-    # Read only a small number
-    # to keep Render response fast.
+    # --------------------------------------------------------
+    # Try more candidates than needed.
+    #
+    # If one site blocks scraping,
+    # another site can replace it.
+    # --------------------------------------------------------
 
-    results_to_read = results[
+    candidates = results[
         :MAX_SEARCH_RESULTS
     ]
 
-    sources = []
-
     print(
-        f"📚 Reading up to "
-        f"{MAX_SOURCES_TO_READ} articles..."
+        f"📚 Candidate sources: "
+        f"{len(candidates)}"
     )
 
+    # --------------------------------------------------------
+    # PARALLEL READING
+    # --------------------------------------------------------
+
+    sources = []
+
     with ThreadPoolExecutor(
-        max_workers=MAX_WORKERS
+        max_workers=READ_WORKERS
     ) as executor:
 
-        futures = {
-
+        future_map = {
             executor.submit(
                 read_source,
                 item,
-            ):
-                item
+            ): item
 
-            for item in results_to_read
+            for item in candidates
         }
 
         for future in as_completed(
-            futures
+            future_map
         ):
 
             try:
 
-                result = future.result()
+                source = future.result()
 
-                if result:
+                if not source:
+                    continue
 
-                    sources.append(
-                        result
-                    )
+                if not is_useful_source(
+                    source
+                ):
+                    continue
+
+                sources.append(
+                    source
+                )
+
+                print(
+                    f"✅ Source accepted "
+                    f"{len(sources)}/"
+                    f"{MAX_SOURCES_TO_READ}"
+                )
+
+                # ------------------------------------------------
+                # Stop after enough usable sources
+                # ------------------------------------------------
 
                 if (
                     len(sources)
@@ -1389,27 +1705,29 @@ def research(question):
             except Exception as error:
 
                 print(
-                    "⚠️ Source error:",
+                    "⚠️ Reader worker error:",
                     error,
                 )
 
-    # Keep original search order
-    order = {
-        item.get(
+    # --------------------------------------------------------
+    # Preserve original search order
+    # --------------------------------------------------------
+
+    source_order = {
+        result.get(
             "url",
             "",
-        ):
-            index
+        ): index
 
-        for index, item
+        for index, result
         in enumerate(
-            results_to_read
+            candidates
         )
     }
 
     sources.sort(
         key=lambda item:
-            order.get(
+            source_order.get(
                 item.get(
                     "url",
                     "",
@@ -1417,6 +1735,44 @@ def research(question):
                 999,
             )
     )
+
+    # --------------------------------------------------------
+    # Final domain deduplication
+    # --------------------------------------------------------
+
+    final_sources = []
+
+    used_domains = set()
+
+    for source in sources:
+
+        domain = base_domain(
+            source.get(
+                "url",
+                "",
+            )
+        )
+
+        if domain in used_domains:
+            continue
+
+        used_domains.add(
+            domain
+        )
+
+        final_sources.append(
+            source
+        )
+
+        if (
+            len(final_sources)
+            >= MAX_SOURCES_TO_READ
+        ):
+            break
+
+    # --------------------------------------------------------
+    # Log
+    # --------------------------------------------------------
 
     print(
         "\n" + "=" * 60
@@ -1427,15 +1783,29 @@ def research(question):
     )
 
     print(
-        f"📚 Sources read: "
-        f"{len(sources)}"
+        f"📚 Sources returned: "
+        f"{len(final_sources)}"
     )
+
+    for index, source in enumerate(
+        final_sources,
+        1,
+    ):
+
+        print(
+            f"{index}. "
+            f"{source.get('title', 'Untitled')}"
+        )
+
+        print(
+            f"   {source.get('url', '')}"
+        )
 
     print(
         "=" * 60
     )
 
-    return sources
+    return final_sources
 
 
 # ============================================================
@@ -1458,6 +1828,14 @@ if __name__ == "__main__":
         question
     )
 
+    print(
+        "\nFINAL SOURCES"
+    )
+
+    print(
+        "=" * 60
+    )
+
     for index, source in enumerate(
         sources,
         1,
@@ -1465,13 +1843,32 @@ if __name__ == "__main__":
 
         print(
             f"\n[{index}] "
-            f"{source['title']}"
+            f"{source.get('title', 'Untitled')}"
         )
 
         print(
-            source["url"]
+            "Source:",
+            source.get(
+                "source",
+                "Web",
+            )
         )
 
         print(
-            source["text"][:500]
+            "URL:",
+            source.get(
+                "url",
+                "",
+            )
+        )
+
+        print(
+            "Text:"
+        )
+
+        print(
+            source.get(
+                "text",
+                "",
+            )[:1000]
         )
