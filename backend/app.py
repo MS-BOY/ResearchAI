@@ -340,124 +340,54 @@ def test_search():
 # =========================================================
 # RESEARCH API
 # =========================================================
-
-@app.route(
-    "/research",
-    methods=["POST"]
-)
+@app.route("/research", methods=["POST"])
 def research():
 
-    print("\n")
-    print("=" * 75)
-    print("🤖 NEW RESEARCH REQUEST")
-    print("=" * 75)
-
-
-    # =====================================================
-    # CHECK TOOLS
-    # =====================================================
-
-    if not TOOLS_LOADED:
-
-        return jsonify({
-
-            "error":
-                "Backend tools failed to load.",
-
-            "stage":
-                "import"
-
-        }), 500
-
-
-    # =====================================================
-    # JSON
-    # =====================================================
-
     try:
 
-        data = request.get_json(
-            silent=True
-        )
+        print("\n" + "=" * 70)
+        print("🤖 RESEARCH REQUEST STARTED")
 
-    except Exception as e:
+        # ======================================
+        # JSON
+        # ======================================
 
-        print(
-            "❌ JSON ERROR:",
-            e
-        )
+        data = request.get_json(silent=True)
 
-        return jsonify({
+        print("📦 Request data:", data)
 
-            "error":
-                "Invalid JSON request",
+        if not isinstance(data, dict):
 
-            "details":
-                str(e),
+            return jsonify({
+                "success": False,
+                "error": "Invalid JSON request"
+            }), 400
 
-            "stage":
-                "json"
+        # ======================================
+        # Question
+        # ======================================
 
-        }), 400
+        question = str(
+            data.get("question", "")
+        ).strip()
 
+        requested_language = str(
+            data.get("language", "auto")
+        ).strip()
 
-    if not isinstance(
-        data,
-        dict
-    ):
+        if not question:
 
-        return jsonify({
+            return jsonify({
+                "success": False,
+                "error": "Question is required"
+            }), 400
 
-            "error":
-                "Invalid JSON request",
+        print("❓ Question:", question)
+        print("🌐 Requested language:", requested_language)
 
-            "stage":
-                "json"
-
-        }), 400
-
-
-    # =====================================================
-    # QUESTION
-    # =====================================================
-
-    question = str(
-        data.get(
-            "question",
-            ""
-        )
-    ).strip()
-
-
-    requested_language = data.get(
-        "language",
-        "auto"
-    )
-
-
-    if not question:
-
-        return jsonify({
-
-            "error":
-                "Question is required",
-
-            "stage":
-                "validation"
-
-        }), 400
-
-
-    print(
-        f"❓ Question: {question}"
-    )
-
-
-    # =====================================================
-    # LANGUAGE
-    # =====================================================
-
-    try:
+        # ======================================
+        # Language
+        # ======================================
 
         detected_language = detect_language(
             question
@@ -468,364 +398,465 @@ def research():
             detected_language
         )
 
-    except Exception as e:
+        print(
+            "🌐 Detected:",
+            detected_language
+        )
 
         print(
-            "❌ Language detection error:",
-            e
+            "🗣️ Answer:",
+            answer_language
         )
 
-        detected_language = "English"
-        answer_language = "English"
+        # ======================================
+        # Question Analyzer
+        # ======================================
 
+        print("\n🧠 Analyzing question...")
 
-    print(
-        f"🌐 Detected: {detected_language}"
-    )
+        try:
 
-    print(
-        f"🗣️ Answer: {answer_language}"
-    )
+            analysis = analyze_question(
+                question
+            )
 
+            if not isinstance(
+                analysis,
+                dict
+            ):
+                analysis = {}
 
-    # =====================================================
-    # ANALYZE QUESTION
-    # =====================================================
+        except Exception as e:
 
-    print(
-        "\n🧠 Analyzing question..."
-    )
+            print(
+                "⚠️ Analyzer failed:",
+                repr(e)
+            )
 
-
-    try:
-
-        analysis = analyze_question(
-            question
-        )
-
-
-        if not isinstance(
-            analysis,
-            dict
-        ):
+            traceback.print_exc()
 
             analysis = {}
-
 
         intents = analysis.get(
             "intents",
             []
         )
 
+        if not isinstance(
+            intents,
+            list
+        ):
+            intents = []
 
         search_query = analysis.get(
             "search_query",
             question
         )
 
-
         if not search_query:
 
             search_query = question
 
-
         print(
-            f"🎯 Intents: {intents}"
+            "🎯 Intents:",
+            intents
         )
 
         print(
-            f"🔎 Search query: {search_query}"
-        )
-
-
-    except Exception as e:
-
-        print(
-            "⚠️ Question analyzer failed:"
-        )
-
-        traceback.print_exc()
-
-
-        # Analyzer fail হলেও research চলবে
-
-        intents = []
-
-        search_query = question
-
-
-    # =====================================================
-    # SEARCH
-    # =====================================================
-
-    print(
-        "\n🔎 Searching internet..."
-    )
-
-
-    try:
-
-        results = search_web(
+            "🔎 Search query:",
             search_query
         )
 
+        # ======================================
+        # WEB SEARCH
+        # ======================================
 
-    except Exception as e:
-
-        print(
-            "❌ SEARCH ERROR"
-        )
-
-        traceback.print_exc()
-
-
-        return jsonify({
-
-            "error":
-                "Internet search failed",
-
-            "details":
-                str(e),
-
-            "type":
-                type(e).__name__,
-
-            "stage":
-                "search",
-
-            "question":
-                question
-
-        }), 500
-
-
-    if not isinstance(
-        results,
-        list
-    ):
-
-        results = []
-
-
-    print(
-        f"📚 Search results: {len(results)}"
-    )
-
-
-    # =====================================================
-    # NO SEARCH RESULTS
-    # =====================================================
-
-    if not results:
-
-        message = (
-
-            "কোনো search result পাওয়া যায়নি।"
-
-            if answer_language == "বাংলা"
-
-            else
-
-            "No search results were found."
-
-        )
-
-
-        return jsonify({
-
-            "question":
-                question,
-
-            "detected_language":
-                detected_language,
-
-            "answer_language":
-                answer_language,
-
-            "intents":
-                intents,
-
-            "search_query":
-                search_query,
-
-            "source_count":
-                0,
-
-            "summary":
-                message,
-
-            "structured":
-                {},
-
-            "sources":
-                []
-
-        })
-
-
-    # =====================================================
-    # READ WEB PAGES
-    # =====================================================
-
-    sources = []
-
-
-    for index, item in enumerate(
-        results,
-        1
-    ):
-
-        if not isinstance(
-            item,
-            dict
-        ):
-
-            continue
-
-
-        title = str(
-            item.get(
-                "title",
-                "Untitled source"
-            )
-        ).strip()
-
-
-        url = str(
-            item.get(
-                "url",
-                ""
-            )
-        ).strip()
-
-
-        if not url:
-
-            print(
-                "⚠️ Result has no URL"
-            )
-
-            continue
-
-
-        print(
-            "\n" + "-" * 60
-        )
-
-        print(
-            f"📖 Reading {index}/{len(results)}"
-        )
-
-        print(
-            f"📄 {title}"
-        )
-
-        print(
-            f"🔗 {url}"
-        )
-
+        print("\n🔎 Searching web...")
 
         try:
 
-            text = read_page(
-                url
+            results = search_web(
+                search_query
             )
-
 
         except Exception as e:
 
             print(
-                "⚠️ read_page ERROR:"
+                "❌ SEARCH ERROR:",
+                repr(e)
             )
 
             traceback.print_exc()
 
-            text = ""
+            return jsonify({
 
+                "success": False,
 
-        if not text:
+                "error":
+                    "Internet search failed",
 
-            print(
-                "⚠️ No readable text"
-            )
+                "details":
+                    str(e),
 
-            continue
+                "question":
+                    question
 
+            }), 500
 
-        text = str(
-            text
-        ).strip()
-
-
-        if len(text) < 50:
-
-            print(
-                "⚠️ Text too short"
-            )
-
-            continue
-
-
-        sources.append({
-
-            "title":
-                title,
-
-            "url":
-                url,
-
-            "text":
-                text[:8000]
-
-        })
-
+        if not isinstance(
+            results,
+            list
+        ):
+            results = []
 
         print(
-            f"✅ Source added: "
-            f"{len(text)} characters"
+            f"📚 Search results: {len(results)}"
         )
 
+        # ======================================
+        # READ WEB PAGES
+        # ======================================
 
-    print(
-        "\n📚 FINAL READABLE SOURCES:",
-        len(sources)
-    )
+        sources = []
 
+        for index, item in enumerate(
+            results,
+            1
+        ):
 
-    # =====================================================
-    # NO READABLE SOURCES
-    # =====================================================
+            if not isinstance(
+                item,
+                dict
+            ):
+                continue
 
-    if not sources:
-
-        if answer_language == "বাংলা":
-
-            message = (
-                "Search result পাওয়া গেছে, "
-                "কিন্তু কোনো webpage-এর readable text "
-                "পাওয়া যায়নি।"
+            title = str(
+                item.get(
+                    "title",
+                    "Untitled source"
+                )
             )
 
-        else:
+            url = str(
+                item.get(
+                    "url",
+                    ""
+                )
+            ).strip()
 
-            message = (
-                "Search results were found, "
-                "but no webpage contained readable text."
+            if not url:
+
+                continue
+
+            print(
+                f"\n📖 Reading {index}/{len(results)}"
             )
 
+            print(
+                "📄",
+                title
+            )
+
+            print(
+                "🔗",
+                url
+            )
+
+            try:
+
+                text = read_page(
+                    url
+                )
+
+            except Exception as e:
+
+                print(
+                    "⚠️ READ ERROR:",
+                    repr(e)
+                )
+
+                traceback.print_exc()
+
+                text = ""
+
+            if not text:
+
+                print(
+                    "⏭️ Skipping unreadable source"
+                )
+
+                continue
+
+            sources.append({
+
+                "title":
+                    title,
+
+                "url":
+                    url,
+
+                "text":
+                    str(text)[:8000]
+
+            })
+
+            print(
+                "✅ Source added"
+            )
+
+        print(
+            f"\n📚 Readable sources: {len(sources)}"
+        )
+
+        # ======================================
+        # NO SOURCES
+        # ======================================
+
+        if len(sources) == 0:
+
+            if answer_language == "বাংলা":
+
+                message = (
+                    "Search result পাওয়া গেলেও "
+                    "কোনো webpage থেকে readable text "
+                    "পাওয়া যায়নি।"
+                )
+
+            else:
+
+                message = (
+                    "Search results were found, "
+                    "but no webpage returned readable text."
+                )
+
+            try:
+
+                labels = get_intent_labels(
+                    intents
+                )
+
+            except Exception:
+
+                labels = {}
+
+            return jsonify({
+
+                "success": True,
+
+                "question":
+                    question,
+
+                "detected_language":
+                    detected_language,
+
+                "answer_language":
+                    answer_language,
+
+                "intents":
+                    intents,
+
+                "intent_labels":
+                    labels,
+
+                "search_query":
+                    search_query,
+
+                "source_count":
+                    0,
+
+                "summary":
+                    message,
+
+                "structured":
+                    {},
+
+                "sources":
+                    []
+
+            })
+
+        # ======================================
+        # SUMMARY
+        # ======================================
+
+        print(
+            "\n🧠 Creating summary..."
+        )
 
         try:
 
-            labels = get_intent_labels(
+            try:
+
+                summary = build_research_summary(
+
+                    sources,
+
+                    intents=intents,
+
+                    max_sentences_per_source=5,
+
+                    max_total_sentences=20
+
+                )
+
+            except TypeError:
+
+                summary = build_research_summary(
+
+                    sources,
+
+                    max_sentences_per_source=5,
+
+                    max_total_sentences=20
+
+                )
+
+        except Exception as e:
+
+            print(
+                "⚠️ SUMMARY ERROR:",
+                repr(e)
+            )
+
+            traceback.print_exc()
+
+            summary = ""
+
+        if not summary:
+
+            summary = (
+                "Relevant information was found "
+                "but a summary could not be generated."
+            )
+
+        # ======================================
+        # STRUCTURED
+        # ======================================
+
+        print(
+            "\n🧩 Building structured research..."
+        )
+
+        try:
+
+            structured = build_structured_research(
+                sources,
                 intents
             )
 
-        except Exception:
+        except Exception as e:
 
-            labels = {}
+            print(
+                "⚠️ STRUCTURED ERROR:",
+                repr(e)
+            )
 
+            traceback.print_exc()
 
-        return jsonify({
+            structured = {}
+
+        if not isinstance(
+            structured,
+            dict
+        ):
+
+            structured = {}
+
+        # ======================================
+        # TRANSLATION
+        # ======================================
+
+        print(
+            "\n🌐 Translating..."
+        )
+
+        try:
+
+            translated_summary = translate_text(
+                summary,
+                answer_language
+            )
+
+        except Exception as e:
+
+            print(
+                "⚠️ TRANSLATION ERROR:",
+                repr(e)
+            )
+
+            translated_summary = summary
+
+        # ======================================
+        # STRUCTURED TRANSLATION
+        # ======================================
+
+        translated_sections = {}
+
+        for intent, sentences in structured.items():
+
+            try:
+
+                if isinstance(
+                    sentences,
+                    list
+                ):
+
+                    section_text = "\n\n".join(
+                        str(x)
+                        for x in sentences
+                    )
+
+                else:
+
+                    section_text = str(
+                        sentences
+                    )
+
+                translated_sections[
+                    str(intent)
+                ] = translate_text(
+                    section_text,
+                    answer_language
+                )
+
+            except Exception as e:
+
+                print(
+                    "⚠️ Section translation error:",
+                    repr(e)
+                )
+
+                translated_sections[
+                    str(intent)
+                ] = str(sentences)
+
+        # ======================================
+        # INTENT LABELS
+        # ======================================
+
+        try:
+
+            intent_labels = get_intent_labels(
+                intents
+            )
+
+        except Exception as e:
+
+            print(
+                "⚠️ Intent label error:",
+                repr(e)
+            )
+
+            intent_labels = {}
+
+        # ======================================
+        # FINAL RESPONSE
+        # ======================================
+
+        response = {
+
+            "success":
+                True,
 
             "question":
                 question,
@@ -840,324 +871,76 @@ def research():
                 intents,
 
             "intent_labels":
-                labels,
+                intent_labels,
 
             "search_query":
                 search_query,
 
             "source_count":
-                0,
+                len(sources),
 
             "summary":
-                message,
+                translated_summary,
 
             "structured":
-                {},
+                translated_sections,
 
             "sources":
-                []
+                sources
 
-        })
-
-
-    # =====================================================
-    # SUMMARY
-    # =====================================================
-
-    print(
-        "\n🧠 Creating summary..."
-    )
-
-
-    try:
-
-        summary = build_research_summary(
-
-            sources,
-
-            intents=intents,
-
-            max_sentences_per_source=5,
-
-            max_total_sentences=20
-
-        )
-
-
-    except TypeError:
+        }
 
         print(
-            "⚠️ Summarizer does not support intents parameter"
+            "\n" + "=" * 70
         )
 
+        print(
+            "✅ RESEARCH COMPLETED"
+        )
 
-        try:
+        print(
+            "📚 Sources:",
+            len(sources)
+        )
 
-            summary = build_research_summary(
+        print(
+            "=" * 70
+        )
 
-                sources,
+        return jsonify(response), 200
 
-                max_sentences_per_source=5,
-
-                max_total_sentences=20
-
-            )
-
-        except Exception as e:
-
-            print(
-                "❌ Summary fallback failed:",
-                e
-            )
-
-            traceback.print_exc()
-
-            summary = ""
-
+    # ======================================
+    # GLOBAL ERROR
+    # ======================================
 
     except Exception as e:
 
         print(
-            "❌ Summary failed:"
+            "\n❌❌❌ RESEARCH CRASHED ❌❌❌"
         )
-
-        traceback.print_exc()
-
-        summary = ""
-
-
-    if not summary:
-
-        summary = (
-            "Relevant information was found "
-            "but a summary could not be generated."
-        )
-
-
-    # =====================================================
-    # STRUCTURED
-    # =====================================================
-
-    print(
-        "\n🧩 Creating structured research..."
-    )
-
-
-    try:
-
-        structured = build_structured_research(
-
-            sources,
-
-            intents
-
-        )
-
-
-    except Exception as e:
 
         print(
-            "⚠️ Structured research failed:"
+            "ERROR:",
+            repr(e)
         )
 
         traceback.print_exc()
 
-        structured = {}
+        return jsonify({
 
+            "success":
+                False,
 
-    if not isinstance(
-        structured,
-        dict
-    ):
+            "error":
+                "Research process crashed",
 
-        structured = {}
+            "details":
+                str(e),
 
+            "type":
+                type(e).__name__
 
-    # =====================================================
-    # TRANSLATE SUMMARY
-    # =====================================================
-
-    print(
-        "\n🌐 Translating summary..."
-    )
-
-
-    translated_summary = translate_text(
-
-        summary,
-
-        answer_language
-
-    )
-
-
-    # =====================================================
-    # TRANSLATE STRUCTURED
-    # =====================================================
-
-    translated_sections = {}
-
-
-    for intent, sentences in structured.items():
-
-        try:
-
-            if not sentences:
-
-                translated_sections[
-                    intent
-                ] = ""
-
-                continue
-
-
-            if isinstance(
-                sentences,
-                list
-            ):
-
-                section_text = "\n\n".join(
-                    str(x)
-                    for x in sentences
-                )
-
-            else:
-
-                section_text = str(
-                    sentences
-                )
-
-
-            translated_sections[
-                intent
-            ] = translate_text(
-                section_text,
-                answer_language
-            )
-
-
-        except Exception as e:
-
-            print(
-                "⚠️ Section translation error:",
-                e
-            )
-
-            translated_sections[
-                intent
-            ] = str(
-                sentences
-            )
-
-
-    # =====================================================
-    # INTENT LABELS
-    # =====================================================
-
-    try:
-
-        intent_labels = get_intent_labels(
-            intents
-        )
-
-    except Exception:
-
-        intent_labels = {}
-
-
-    # =====================================================
-    # FINAL RESPONSE
-    # =====================================================
-
-    response = {
-
-        "success":
-            True,
-
-        "question":
-            question,
-
-        "detected_language":
-            detected_language,
-
-        "answer_language":
-            answer_language,
-
-        "intents":
-            intents,
-
-        "intent_labels":
-            intent_labels,
-
-        "search_query":
-            search_query,
-
-        "source_count":
-            len(sources),
-
-        "summary":
-            translated_summary,
-
-        "structured":
-            translated_sections,
-
-        "sources":
-            sources
-
-    }
-
-
-    print(
-        "\n" + "=" * 75
-    )
-
-    print(
-        "✅ RESEARCH COMPLETED"
-    )
-
-    print(
-        f"📚 Sources: {len(sources)}"
-    )
-
-    print(
-        "=" * 75
-    )
-
-
-    return jsonify(
-        response
-    )
-
-
-# =========================================================
-# GLOBAL ERROR HANDLER
-# =========================================================
-
-@app.errorhandler(Exception)
-def handle_exception(error):
-
-    print(
-        "\n❌ UNHANDLED SERVER ERROR"
-    )
-
-    traceback.print_exc()
-
-
-    return jsonify({
-
-        "success":
-            False,
-
-        "error":
-            "Internal server error",
-
-        "details":
-            str(error),
-
-        "type":
-            type(error).__name__
-
-    }), 500
+        }), 500
 
 
 # =========================================================
