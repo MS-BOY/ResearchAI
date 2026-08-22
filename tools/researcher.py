@@ -1,109 +1,61 @@
 import requests
-
 from bs4 import BeautifulSoup
-
-from urllib.parse import (
-    quote,
-    urlparse,
-    parse_qs,
-    unquote
-)
-
-
-HEADERS = {
-
-    "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36",
-
-    "Accept":
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-
-    "Accept-Language":
-        "en-US,en;q=0.9"
-
-}
+from urllib.parse import quote, urlparse, parse_qs, unquote
 
 
 def get_real_url(url):
 
-    if not url:
-        return ""
-
-    url = str(url).strip()
-
+    # DuckDuckGo relative URL
     if url.startswith("//"):
-
         url = "https:" + url
 
+    # DuckDuckGo redirect URL থেকে আসল URL বের করা
     if "duckduckgo.com/l/?" in url:
 
-        try:
+        parsed = urlparse(url)
 
-            parsed = urlparse(url)
+        params = parse_qs(parsed.query)
 
-            params = parse_qs(
-                parsed.query
-            )
+        if "uddg" in params:
 
-            if "uddg" in params:
+            real_url = params["uddg"][0]
 
-                real_url = unquote(
-                    params["uddg"][0]
-                )
+            real_url = unquote(real_url)
 
-                return real_url.replace(
-                    "\\/",
-                    "/"
-                )
+            # ভুল escaped slash থাকলে ঠিক করা
+            real_url = real_url.replace("\\/", "/")
 
-        except Exception as e:
-
-            print(
-                "⚠️ URL parse error:",
-                e
-            )
+            return real_url
 
     return url
 
 
 def search_web(question):
 
-    print(
-        f"\n🔎 SEARCHING: {question}"
-    )
+    print(f"\n🔎 Searching internet for: {question}")
 
-    search_url = (
+    url = (
         "https://html.duckduckgo.com/html/?q="
         + quote(question)
     )
 
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
     try:
 
         response = requests.get(
-
-            search_url,
-
-            headers=HEADERS,
-
-            timeout=20
-
-        )
-
-        print(
-            "🔎 Search HTTP:",
-            response.status_code
+            url,
+            headers=headers,
+            timeout=15
         )
 
         response.raise_for_status()
 
     except Exception as e:
 
-        print(
-            "❌ Search request failed:",
-            repr(e)
-        )
+        print("❌ Search failed:", e)
 
         return []
 
@@ -114,289 +66,215 @@ def search_web(question):
 
     results = []
 
-    # ======================================
-    # DuckDuckGo results
-    # ======================================
+    for result in soup.select(".result"):
 
-    for item in soup.select(
-        ".result"
-    ):
+        title = result.select_one(
+            ".result__title"
+        )
 
-        link = item.select_one(
+        link = result.select_one(
             ".result__a"
         )
 
-        if not link:
+        if title and link:
 
-            continue
-
-        title = link.get_text(
-            " ",
-            strip=True
-        )
-
-        raw_url = link.get(
-            "href",
-            ""
-        )
-
-        real_url = get_real_url(
-            raw_url
-        )
-
-        if not real_url.startswith(
-            "http"
-        ):
-
-            continue
-
-        results.append({
-
-            "title":
-                title or "Untitled",
-
-            "url":
-                real_url
-
-        })
-
-    # ======================================
-    # Fallback selector
-    # ======================================
-
-    if not results:
-
-        print(
-            "⚠️ .result selector returned 0"
-        )
-
-        for link in soup.select(
-            "a.result__a"
-        ):
-
-            title = link.get_text(
-                " ",
-                strip=True
-            )
-
-            raw_url = link.get(
-                "href",
-                ""
-            )
+            raw_url = link.get("href")
 
             real_url = get_real_url(
                 raw_url
             )
 
-            if real_url.startswith(
-                "http"
-            ):
+            if real_url.startswith("http"):
 
                 results.append({
-
-                    "title":
-                        title or "Untitled",
-
-                    "url":
-                        real_url
-
+                    "title": title.get_text(
+                        " ",
+                        strip=True
+                    ),
+                    "url": real_url
                 })
 
-    # ======================================
-    # Remove duplicates
-    # ======================================
-
-    unique = []
-
-    seen = set()
-
-    for result in results:
-
-        url = result["url"]
-
-        if url in seen:
-
-            continue
-
-        seen.add(url)
-
-        unique.append(
-            result
-        )
-
-    print(
-        f"✅ SEARCH RESULTS: {len(unique)}"
-    )
-
-    for item in unique[:5]:
-
-        print(
-            "→",
-            item["title"]
-        )
-
-        print(
-            " ",
-            item["url"]
-        )
-
-    return unique[:8]
+    return results[:5]
 
 
 def read_page(url):
 
-    if not url:
-
-        return ""
-
-    print(
-        f"🌐 Opening: {url}"
-    )
-
     try:
 
-        response = requests.get(
-
-            url,
-
-            headers=HEADERS,
-
-            timeout=15,
-
-            allow_redirects=True
-
+        print(
+            f"🌐 Opening: {url}"
         )
 
-        print(
-            "🌐 HTTP:",
-            response.status_code
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
         )
 
         if response.status_code != 200:
 
+            print(
+                "⚠️ HTTP:",
+                response.status_code
+            )
+
             return ""
-
-    except Exception as e:
-
-        print(
-            "❌ Page request failed:",
-            repr(e)
-        )
-
-        return ""
-
-    # ======================================
-    # Content type
-    # ======================================
-
-    content_type = (
-        response.headers
-        .get(
-            "Content-Type",
-            ""
-        )
-        .lower()
-    )
-
-    if (
-        "text/html" not in content_type
-        and "application/xhtml" not in content_type
-    ):
-
-        print(
-            "⏭️ Not HTML:",
-            content_type
-        )
-
-        return ""
-
-    try:
 
         soup = BeautifulSoup(
             response.text,
             "html.parser"
         )
 
-    except Exception as e:
+        # Unwanted elements remove
+        for tag in soup([
+            "script",
+            "style",
+            "nav",
+            "footer",
+            "header",
+            "aside",
+            "form"
+        ]):
 
-        print(
-            "❌ BeautifulSoup error:",
-            repr(e)
-        )
+            tag.decompose()
 
-        return ""
+        # Article থাকলে সেটাকে priority
+        article = soup.find("article")
 
-    # ======================================
-    # Remove unwanted
-    # ======================================
+        if article:
 
-    for tag in soup.find_all([
-        "script",
-        "style",
-        "noscript",
-        "nav",
-        "footer",
-        "header",
-        "aside",
-        "form",
-        "svg"
-    ]):
-
-        tag.decompose()
-
-    # ======================================
-    # Article priority
-    # ======================================
-
-    article = soup.find(
-        "article"
-    )
-
-    if article:
-
-        text = article.get_text(
-            " ",
-            strip=True
-        )
-
-    else:
-
-        paragraphs = soup.find_all(
-            "p"
-        )
-
-        text = " ".join(
-
-            p.get_text(
+            text = article.get_text(
                 " ",
                 strip=True
             )
 
-            for p in paragraphs
+        else:
 
-            if p.get_text(
-                strip=True
+            # paragraph থেকে text নেওয়া
+            paragraphs = soup.find_all("p")
+
+            text = " ".join(
+                p.get_text(
+                    " ",
+                    strip=True
+                )
+                for p in paragraphs
             )
 
+        text = " ".join(
+            text.split()
         )
 
-    text = " ".join(
-        text.split()
-    )
+        return text[:8000]
 
-    if len(text) < 100:
+    except Exception as e:
 
         print(
-            "⚠️ Very little text:",
-            len(text)
+            "⚠️ Page read failed:",
+            e
         )
 
         return ""
 
+
+def research(question):
+
+    results = search_web(question)
+
+    if not results:
+
+        print("❌ No sources found.")
+
+        return
+
     print(
-        "✅ Extracted:",
-        len(text),
-        "characters"
+        f"\n📚 Found {len(results)} sources:\n"
     )
 
-    return text[:8000]
+    successful = 0
+
+    for i, result in enumerate(
+        results,
+        1
+    ):
+
+        print(
+            "\n" + "=" * 60
+        )
+
+        print(
+            f"📄 SOURCE {i}"
+        )
+
+        print(
+            "Title:",
+            result["title"]
+        )
+
+        print(
+            "URL:",
+            result["url"]
+        )
+
+        domain = urlparse(
+            result["url"]
+        ).netloc.lower()
+
+        # প্রথম version-এ এগুলো বাদ
+        blocked = [
+            "youtube.com",
+            "youtu.be",
+            "facebook.com",
+            "instagram.com",
+            "tiktok.com"
+        ]
+
+        if any(
+            site in domain
+            for site in blocked
+        ):
+
+            print(
+                "⏭️ Video/social source skipped"
+            )
+
+            continue
+
+        print(
+            "\n📖 Reading webpage..."
+        )
+
+        text = read_page(
+            result["url"]
+        )
+
+        if text:
+
+            successful += 1
+
+            print(
+                "\n📝 Extracted text:\n"
+            )
+
+            print(
+                text[:3000]
+            )
+
+        else:
+
+            print(
+                "⚠️ No readable text found."
+            )
+
+    print(
+        "\n" + "=" * 60
+    )
+
+    print(
+        f"✅ Successfully read "
+        f"{successful} source(s)."
+    )
