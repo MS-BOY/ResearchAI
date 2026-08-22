@@ -1,129 +1,297 @@
-const button =
-    document.getElementById("researchBtn");
+```javascript
+// ============================================================
+// RESEARCH AI FRONTEND
+// Works with local Flask + Render production backend
+// ============================================================
 
-const question =
-    document.getElementById("question");
-
-const result =
-    document.getElementById("result");
-
-const summary =
-    document.getElementById("summary");
-
-const sourceCount =
-    document.getElementById("sourceCount");
-
-const language =
-    document.getElementById("language");
+"use strict";
 
 
-// ==========================================
-// Research Button
-// ==========================================
+// ============================================================
+// DOM ELEMENTS
+// ============================================================
 
-button.addEventListener(
-    "click",
-    async function () {
-
-        const text =
-            question.value.trim();
-
-
-        // Empty question
-        if (!text) {
-
-            alert(
-                "Please enter a question."
-            );
-
-            return;
-        }
+const button = document.getElementById("researchBtn");
+const question = document.getElementById("question");
+const result = document.getElementById("result");
+const summary = document.getElementById("summary");
+const sourceCount = document.getElementById("sourceCount");
+const language = document.getElementById("language");
 
 
-        // Show result
-        result.classList.remove(
-            "hidden"
+// ============================================================
+// BACKEND URL
+// ============================================================
+
+// If frontend is served by Render itself:
+//   window.location.origin = https://researchai-v0f0.onrender.com
+//
+// If frontend is opened locally:
+//   use local Flask.
+//
+// This removes the old hard-coded 127.0.0.1 problem.
+
+const BACKEND_URL =
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "localhost"
+        ? "http://127.0.0.1:5000"
+        : window.location.origin;
+
+
+// Research endpoint
+const RESEARCH_URL =
+    `${BACKEND_URL}/research`;
+
+
+// Health endpoint
+const HEALTH_URL =
+    `${BACKEND_URL}/api/health`;
+
+
+// ============================================================
+// DEBUG
+// ============================================================
+
+console.log("====================================");
+console.log("🔬 Research AI Frontend");
+console.log("Backend:", BACKEND_URL);
+console.log("Research:", RESEARCH_URL);
+console.log("Health:", HEALTH_URL);
+console.log("====================================");
+
+
+// ============================================================
+// CHECK REQUIRED ELEMENTS
+// ============================================================
+
+if (!button) {
+    console.error("❌ researchBtn not found");
+}
+
+if (!question) {
+    console.error("❌ question input not found");
+}
+
+if (!summary) {
+    console.error("❌ summary element not found");
+}
+
+
+// ============================================================
+// HEALTH CHECK
+// ============================================================
+
+async function checkBackend() {
+
+    try {
+
+        console.log("🩺 Checking backend...");
+
+        const response = await fetch(
+            HEALTH_URL,
+            {
+                method: "GET",
+                headers: {
+                    "Accept": "application/json"
+                },
+                cache: "no-store"
+            }
+        );
+
+        const data = await response.json();
+
+        console.log(
+            "🩺 Backend health:",
+            data
         );
 
 
-        // Loading state
-        button.disabled = true;
+        if (!response.ok) {
 
-        button.textContent =
-            "Researching...";
-
-
-        sourceCount.textContent =
-            "Searching...";
-
-
-        summary.innerHTML = `
-
-            <div class="loading">
-
-                <p>
-                    🔎 ইন্টারনেটে খোঁজা হচ্ছে...
-                </p>
-
-                <br>
-
-                <p>
-                    📖 বিভিন্ন source পড়া হচ্ছে...
-                </p>
-
-                <br>
-
-                <p>
-                    🧠 তথ্য বিশ্লেষণ করা হচ্ছে...
-                </p>
-
-            </div>
-
-        `;
-
-
-        try {
-
-            // ==================================
-            // Selected Language
-            // ==================================
-
-            const selectedLanguage =
-                language
-                    ? language.value
-                    : "auto";
-
-
-            console.log(
-                "Question:",
-                text
+            console.error(
+                "❌ Backend health failed:",
+                data
             );
 
-            console.log(
-                "Selected language:",
-                selectedLanguage
+            return false;
+        }
+
+
+        if (data.tools_loaded === false) {
+
+            console.error(
+                "❌ Backend is online but tools are NOT loaded.",
+                data.tool_import_error
             );
 
+            return false;
+        }
 
-            // ==================================
-            // Send request to Python
-            // ==================================
 
-            const response =
-                await fetch(
-                    "http://127.0.0.1:5000/research",
-                    {
+        return true;
 
-                        method: "POST",
+    }
 
-                        headers: {
+    catch (error) {
 
-                            "Content-Type":
-                                "application/json"
+        console.error(
+            "❌ Backend health connection failed:",
+            error
+        );
 
-                        },
+        return false;
+    }
+}
 
-                        body: JSON.stringify({
+
+// ============================================================
+// INITIAL BACKEND CHECK
+// ============================================================
+
+checkBackend();
+
+
+// ============================================================
+// RESEARCH BUTTON
+// ============================================================
+
+if (button) {
+
+    button.addEventListener(
+        "click",
+        startResearch
+    );
+
+}
+
+
+// ============================================================
+// ENTER KEY SUPPORT
+// ============================================================
+
+if (question) {
+
+    question.addEventListener(
+        "keydown",
+        function (event) {
+
+            // Ctrl + Enter
+            if (
+                event.key === "Enter" &&
+                event.ctrlKey
+            ) {
+
+                event.preventDefault();
+
+                startResearch();
+            }
+
+        }
+    );
+
+}
+
+
+// ============================================================
+// MAIN RESEARCH FUNCTION
+// ============================================================
+
+async function startResearch() {
+
+    const text =
+        question
+            ? question.value.trim()
+            : "";
+
+
+    // --------------------------------------------------------
+    // Empty question
+    // --------------------------------------------------------
+
+    if (!text) {
+
+        alert(
+            "Please enter a research question."
+        );
+
+        if (question) {
+            question.focus();
+        }
+
+        return;
+    }
+
+
+    // --------------------------------------------------------
+    // Show result
+    // --------------------------------------------------------
+
+    if (result) {
+
+        result.classList.remove(
+            "hidden"
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // Loading state
+    // --------------------------------------------------------
+
+    setLoadingState(true);
+
+
+    try {
+
+        // ====================================================
+        // LANGUAGE
+        // ====================================================
+
+        const selectedLanguage =
+            language
+                ? language.value
+                : "auto";
+
+
+        console.log(
+            "❓ Question:",
+            text
+        );
+
+        console.log(
+            "🌐 Language:",
+            selectedLanguage
+        );
+
+        console.log(
+            "📡 Sending:",
+            RESEARCH_URL
+        );
+
+
+        // ====================================================
+        // REQUEST
+        // ====================================================
+
+        const response =
+            await fetch(
+                RESEARCH_URL,
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json",
+
+                        "Accept":
+                            "application/json"
+
+                    },
+
+                    body:
+                        JSON.stringify({
 
                             question:
                                 text,
@@ -133,184 +301,286 @@ button.addEventListener(
 
                         })
 
-                    }
-                );
-
-
-            // ==================================
-            // Read JSON
-            // ==================================
-
-            const data =
-                await response.json();
-
-
-            // ==================================
-            // Error check
-            // ==================================
-
-            if (!response.ok) {
-
-                throw new Error(
-
-                    data.error ||
-                    "Research failed"
-
-                );
-
-            }
-
-
-            console.log(
-                "Backend response:",
-                data
+                }
             );
 
 
-            // ==================================
-            // Language information
-            // ==================================
+        // ====================================================
+        // READ RESPONSE SAFELY
+        // ====================================================
 
-            let languageText = "";
-
-
-            if (
-                data.answer_language
-            ) {
-
-                languageText = `
-
-                    <div class="language-info">
-
-                        🌐 Answer language:
-
-                        <strong>
-                            ${escapeHTML(
-                                data.answer_language
-                            )}
-                        </strong>
-
-                    </div>
-
-                `;
-
-            }
+        const contentType =
+            response.headers.get(
+                "content-type"
+            ) || "";
 
 
-            // ==================================
-            // Source Count
-            // ==================================
-
-            sourceCount.textContent =
-                `${data.source_count || 0} Sources`;
+        let data;
 
 
-            // ==================================
-            // No Sources
-            // ==================================
+        if (
+            contentType.includes(
+                "application/json"
+            )
+        ) {
 
-            if (
+            data =
+                await response.json();
 
-                !data.sources ||
+        }
 
-                data.sources.length === 0
+        else {
 
-            ) {
+            const raw =
+                await response.text();
 
-                summary.innerHTML = `
+            console.error(
+                "❌ Backend returned non-JSON:",
+                raw
+            );
 
-                    ${languageText}
-
-                    <div class="error-box">
-
-                        <p>
-                            ❌ কোনো readable
-                            source পাওয়া যায়নি।
-                        </p>
-
-                    </div>
-
-                `;
-
-                return;
-
-            }
+            throw new Error(
+                `Backend returned ${response.status} instead of JSON`
+            );
+        }
 
 
-            // ==================================
-            // AI SUMMARY
-            // ==================================
-
-            let html = "";
-
-
-            html += languageText;
+        console.log(
+            "📥 Backend response:",
+            data
+        );
 
 
-            /*
-             * Backend যদি AI summary পাঠায়
-             * তাহলে সেটাই প্রথমে দেখাবে।
-             */
+        // ====================================================
+        // HTTP ERROR
+        // ====================================================
 
-            if (data.summary) {
+        if (!response.ok) {
 
-                html += `
+            const backendError =
+                data.details ||
+                data.error ||
+                `HTTP ${response.status}`;
 
-                    <div class="ai-summary">
-
-                        <div class="summary-title">
-
-                            🧠 AI Summary
-
-                        </div>
-
-                        <div class="summary-content">
-
-                            ${formatText(
-                                data.summary
-                            )}
-
-                        </div>
-
-                    </div>
-
-                `;
-
-            }
+            throw new Error(
+                backendError
+            );
+        }
 
 
-            // ==================================
-            // Research Information
-            // ==================================
+        // ====================================================
+        // BACKEND SUCCESS FLAG
+        // ====================================================
 
-            html += `
+        if (
+            data.success === false
+        ) {
 
-                <div class="research-intro">
+            throw new Error(
+                data.details ||
+                data.error ||
+                "Research failed"
+            );
+        }
 
-                    <h2>
-                        📚 Research Result
-                    </h2>
 
-                    <p>
+        // ====================================================
+        // LANGUAGE INFO
+        // ====================================================
 
-                        মোট
+        let languageText = "";
 
-                        <strong>
-                            ${data.source_count}
-                        </strong>
 
-                        টি source পাওয়া গেছে।
+        if (
+            data.answer_language
+        ) {
 
-                    </p>
+            languageText = `
+
+                <div class="language-info">
+
+                    🌐 Answer language:
+
+                    <strong>
+                        ${escapeHTML(
+                            data.answer_language
+                        )}
+                    </strong>
 
                 </div>
 
             `;
+        }
 
 
-            // ==================================
-            // Sources
-            // ==================================
+        // ====================================================
+        // SOURCE COUNT
+        // ====================================================
+
+        const totalSources =
+            Number(
+                data.source_count || 0
+            );
+
+
+        if (sourceCount) {
+
+            sourceCount.textContent =
+                `${totalSources} Sources`;
+        }
+
+
+        // ====================================================
+        // SUMMARY
+        // ====================================================
+
+        let html = "";
+
+
+        html += languageText;
+
+
+        if (data.summary) {
+
+            html += `
+
+                <div class="ai-summary">
+
+                    <div class="summary-title">
+
+                        🧠 AI Summary
+
+                    </div>
+
+                    <div class="summary-content">
+
+                        ${formatText(
+                            data.summary
+                        )}
+
+                    </div>
+
+                </div>
+
+            `;
+        }
+
+
+        // ====================================================
+        // STRUCTURED RESEARCH
+        // ====================================================
+
+        if (
+            data.structured &&
+            typeof data.structured === "object"
+        ) {
+
+            const sections =
+                Object.entries(
+                    data.structured
+                );
+
+
+            if (sections.length > 0) {
+
+                html += `
+
+                    <div class="structured-research">
+
+                        <div class="sources-title">
+
+                            📊 Research Analysis
+
+                        </div>
+
+                `;
+
+
+                sections.forEach(
+                    function (
+                        [key, value]
+                    ) {
+
+                        if (!value) {
+                            return;
+                        }
+
+
+                        html += `
+
+                            <div class="research-section">
+
+                                <h3>
+                                    ${escapeHTML(
+                                        formatIntentName(
+                                            key
+                                        )
+                                    )}
+                                </h3>
+
+                                <div>
+
+                                    ${formatText(
+                                        value
+                                    )}
+
+                                </div>
+
+                            </div>
+
+                        `;
+                    }
+                );
+
+
+                html += `
+
+                    </div>
+
+                `;
+            }
+        }
+
+
+        // ====================================================
+        // RESEARCH INFORMATION
+        // ====================================================
+
+        html += `
+
+            <div class="research-intro">
+
+                <h2>
+                    📚 Research Result
+                </h2>
+
+                <p>
+
+                    মোট
+
+                    <strong>
+                        ${totalSources}
+                    </strong>
+
+                    টি readable source পাওয়া গেছে।
+
+                </p>
+
+            </div>
+
+        `;
+
+
+        // ====================================================
+        // SOURCES
+        // ====================================================
+
+        if (
+            Array.isArray(
+                data.sources
+            ) &&
+            data.sources.length > 0
+        ) {
 
             html += `
 
@@ -324,11 +594,24 @@ button.addEventListener(
 
 
             data.sources.forEach(
-
                 function (
                     source,
                     index
                 ) {
+
+                    const title =
+                        source.title ||
+                        "Untitled source";
+
+
+                    const url =
+                        source.url ||
+                        "#";
+
+
+                    const sourceText =
+                        source.text ||
+                        "No readable text found.";
 
 
                     html += `
@@ -339,38 +622,24 @@ button.addEventListener(
 
                                 ${index + 1}.
                                 ${escapeHTML(
-                                    source.title ||
-                                    "Untitled source"
+                                    title
                                 )}
 
                             </h3>
 
 
-                            ${
-                                source.text
-                                ? `
+                            <p>
 
-                                    <p>
+                                ${escapeHTML(
+                                    sourceText
+                                )}
 
-                                        ${escapeHTML(
-                                            source.text
-                                        )}
-
-                                    </p>
-
-                                `
-                                : `
-                                    <p>
-                                        No readable
-                                        text found.
-                                    </p>
-                                `
-                            }
+                            </p>
 
 
                             <a
                                 href="${escapeAttribute(
-                                    source.url
+                                    url
                                 )}"
                                 target="_blank"
                                 rel="noopener noreferrer"
@@ -385,31 +654,88 @@ button.addEventListener(
                     `;
 
                 }
-
             );
-
-
-            // ==================================
-            // Show result
-            // ==================================
-
-            summary.innerHTML =
-                html;
-
 
         }
 
-        catch (error) {
+        else {
 
-            console.error(
-                "Research Error:",
-                error
-            );
+            html += `
 
+                <div class="error-box">
+
+                    <p>
+                        ⚠️ Search completed,
+                        but no readable webpage
+                        was returned.
+                    </p>
+
+                </div>
+
+            `;
+        }
+
+
+        // ====================================================
+        // PROCESSING TIME
+        // ====================================================
+
+        if (
+            data.processing_time
+        ) {
+
+            html += `
+
+                <div class="processing-time">
+
+                    ⏱️ Processing time:
+                    ${escapeHTML(
+                        String(
+                            data.processing_time
+                        )
+                    )} seconds
+
+                </div>
+
+            `;
+        }
+
+
+        // ====================================================
+        // DISPLAY RESULT
+        // ====================================================
+
+        if (summary) {
+
+            summary.innerHTML =
+                html;
+        }
+
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "❌ Research Error:",
+            error
+        );
+
+
+        if (sourceCount) {
 
             sourceCount.textContent =
                 "Error";
+        }
 
+
+        const message =
+            error && error.message
+                ? error.message
+                : "Unknown error";
+
+
+        if (summary) {
 
             summary.innerHTML = `
 
@@ -421,65 +747,140 @@ button.addEventListener(
 
                     <p>
 
-                        Backend-এর সাথে
-                        connection অথবা
-                        research process-এ
-                        সমস্যা হয়েছে।
+                        ${escapeHTML(
+                            message
+                        )}
 
                     </p>
 
                     <br>
 
                     <p>
-                        Python server চালু আছে
-                        কিনা নিশ্চিত করো।
-                    </p>
 
-                    <br>
+                        🔗 Backend:
+
+                    </p>
 
                     <code>
 
-                        venv\\Scripts\\python.exe
-                        backend\\app.py
+                        ${escapeHTML(
+                            RESEARCH_URL
+                        )}
 
                     </code>
+
+                    <br><br>
+
+                    <button
+                        type="button"
+                        onclick="window.location.reload()"
+                    >
+
+                        🔄 Try Again
+
+                    </button>
 
                 </div>
 
             `;
-
-        }
-
-
-        finally {
-
-            button.disabled =
-                false;
-
-            button.textContent =
-                "Research →";
-
         }
 
     }
-);
+
+    finally {
+
+        setLoadingState(false);
+
+    }
+}
 
 
-// ==========================================
-// Format AI Text
-// ==========================================
+// ============================================================
+// LOADING STATE
+// ============================================================
 
-function formatText(text) {
+function setLoadingState(
+    loading
+) {
 
-    if (!text) {
+    if (!button) {
+        return;
+    }
+
+
+    button.disabled =
+        loading;
+
+
+    if (loading) {
+
+        button.textContent =
+            "Researching...";
+
+
+        if (sourceCount) {
+
+            sourceCount.textContent =
+                "Searching...";
+        }
+
+
+        if (summary) {
+
+            summary.innerHTML = `
+
+                <div class="loading">
+
+                    <p>
+                        🔎 ইন্টারনেটে খোঁজা হচ্ছে...
+                    </p>
+
+                    <br>
+
+                    <p>
+                        📖 বিভিন্ন webpage পড়া হচ্ছে...
+                    </p>
+
+                    <br>
+
+                    <p>
+                        🧠 তথ্য বিশ্লেষণ করা হচ্ছে...
+                    </p>
+
+                </div>
+
+            `;
+        }
+
+    }
+
+    else {
+
+        button.textContent =
+            "Research →";
+    }
+}
+
+
+// ============================================================
+// FORMAT TEXT
+// ============================================================
+
+function formatText(
+    text
+) {
+
+    if (
+        text === null ||
+        text === undefined
+    ) {
 
         return "";
-
     }
 
 
     return escapeHTML(
-        text
+        String(text)
     )
 
     .replace(
@@ -491,43 +892,127 @@ function formatText(text) {
         /\n/g,
         "<br>"
     );
-
 }
 
 
-// ==========================================
-// Escape HTML
-// ==========================================
+// ============================================================
+// FORMAT INTENT NAME
+// ============================================================
 
-function escapeHTML(text) {
+function formatIntentName(
+    name
+) {
+
+    return String(
+        name || ""
+    )
+
+    .replace(
+        /_/g,
+        " "
+    )
+
+    .replace(
+        /\b\w/g,
+        function (char) {
+            return char.toUpperCase();
+        }
+    );
+}
+
+
+// ============================================================
+// ESCAPE HTML
+// ============================================================
+
+function escapeHTML(
+    text
+) {
 
     const div =
         document.createElement(
             "div"
         );
 
+
     div.textContent =
-        text;
+        String(
+            text ?? ""
+        );
+
 
     return div.innerHTML;
-
 }
 
 
-// ==========================================
-// Escape URL
-// ==========================================
+// ============================================================
+// ESCAPE URL ATTRIBUTE
+// ============================================================
 
-function escapeAttribute(url) {
+function escapeAttribute(
+    url
+) {
 
     if (!url) {
 
         return "#";
-
     }
 
 
     return String(url)
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+
+        .replace(
+            /'/g,
+            "&#39;"
+        )
+
+        .replace(
+            /</g,
+            "&lt;"
+        )
+
+        .replace(
+            />/g,
+            "&gt;"
+        );
 }
+
+
+// ============================================================
+// GLOBAL DEBUG HELPER
+// ============================================================
+
+window.ResearchAI = {
+
+    backend:
+        BACKEND_URL,
+
+    research:
+        RESEARCH_URL,
+
+    health:
+        HEALTH_URL,
+
+    checkBackend:
+        checkBackend,
+
+    startResearch:
+        startResearch
+
+};
+
+
+console.log(
+    "✅ Research AI frontend loaded successfully"
+);
+```
