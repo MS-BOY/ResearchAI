@@ -1,3 +1,4 @@
+```python
 import requests
 
 from bs4 import BeautifulSoup
@@ -6,11 +7,11 @@ from urllib.parse import (
     quote,
     urlparse,
     parse_qs,
-    unquote,
-    urljoin
+    unquote
 )
 
 import time
+import re
 
 
 # ============================================================
@@ -27,40 +28,68 @@ MIN_TEXT_LENGTH = 80
 
 
 # ============================================================
+# USER AGENTS
+# ============================================================
+
+USER_AGENTS = [
+
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+
+    (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/605.1.15 "
+        "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+    )
+
+]
+
+
+# ============================================================
 # SESSION
 # ============================================================
 
 session = requests.Session()
 
-session.headers.update({
 
-    "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36",
+def get_headers(user_agent=None):
 
-    "Accept":
-        "text/html,application/xhtml+xml,"
-        "application/xml;q=0.9,image/avif,"
-        "image/webp,*/*;q=0.8",
+    return {
 
-    "Accept-Language":
-        "en-US,en;q=0.9",
+        "User-Agent":
+            user_agent or USER_AGENTS[0],
 
-    "Accept-Encoding":
-        "gzip, deflate",
+        "Accept":
+            "text/html,application/xhtml+xml,"
+            "application/xml;q=0.9,image/avif,"
+            "image/webp,*/*;q=0.8",
 
-    "Connection":
-        "keep-alive",
+        "Accept-Language":
+            "en-US,en;q=0.9",
 
-    "Upgrade-Insecure-Requests":
-        "1"
+        "Cache-Control":
+            "no-cache",
 
-})
+        "Pragma":
+            "no-cache",
+
+        "Upgrade-Insecure-Requests":
+            "1"
+
+    }
 
 
 # ============================================================
-# DOMAIN HELPERS
+# DOMAIN
 # ============================================================
 
 def get_domain(url):
@@ -102,33 +131,25 @@ def is_blocked_domain(url):
 
 
 # ============================================================
-# REAL URL
+# URL CLEANER
 # ============================================================
 
 def get_real_url(url):
 
     if not url:
-
         return ""
-
 
     url = str(url).strip()
 
-
-    # DuckDuckGo relative URL
-
     if url.startswith("//"):
-
         url = "https:" + url
 
+    try:
 
-    # DuckDuckGo redirect
+        parsed = urlparse(url)
 
-    if "duckduckgo.com/l/?" in url:
-
-        try:
-
-            parsed = urlparse(url)
+        # DuckDuckGo redirect
+        if "duckduckgo.com" in parsed.netloc:
 
             params = parse_qs(
                 parsed.query
@@ -138,51 +159,83 @@ def get_real_url(url):
 
                 real_url = params["uddg"][0]
 
-                real_url = unquote(
+                return unquote(
                     real_url
-                )
-
-                real_url = real_url.replace(
+                ).replace(
                     "\\/",
                     "/"
                 )
 
-                return real_url
+    except Exception as e:
 
-        except Exception as e:
-
-            print(
-                "⚠️ URL decode error:",
-                str(e)
-            )
-
+        print(
+            "⚠️ URL parsing error:",
+            e
+        )
 
     return url
 
 
 # ============================================================
-# SEARCH DUCKDUCKGO HTML
+# SEARCH RESULT VALIDATION
+# ============================================================
+
+def add_result(
+    results,
+    title,
+    url
+):
+
+    if not url:
+        return
+
+    url = get_real_url(url)
+
+    if not url.startswith("http"):
+        return
+
+    if is_blocked_domain(url):
+        return
+
+    domain = get_domain(url)
+
+    if not domain:
+        return
+
+    # Skip DDG internal pages
+    if "duckduckgo.com" in domain:
+        return
+
+    # Duplicate
+    for item in results:
+
+        if item["url"].rstrip("/") == url.rstrip("/"):
+            return
+
+    results.append({
+
+        "title":
+            title or "Untitled source",
+
+        "url":
+            url
+
+    })
+
+
+# ============================================================
+# DUCKDUCKGO HTML
 # ============================================================
 
 def search_duckduckgo_html(question):
 
-    print(
-        "\n🔎 DuckDuckGo HTML search:"
-    )
-
-    print(
-        "❓ Query:",
-        question
-    )
-
+    print("\n🔎 DuckDuckGo HTML search")
+    print("❓ Query:", question)
 
     search_url = (
         "https://html.duckduckgo.com/html/?q="
-        + quote(
-            question
-        )
+        + quote(question)
     )
-
 
     try:
 
@@ -190,186 +243,107 @@ def search_duckduckgo_html(question):
 
             search_url,
 
+            headers=get_headers(),
+
             timeout=SEARCH_TIMEOUT,
 
             allow_redirects=True
 
         )
-
 
         print(
             "🔎 Search HTTP:",
             response.status_code
         )
 
-
         print(
             "🌐 Search URL:",
             response.url
         )
 
-
-        if response.status_code != 200:
-
-            print(
-                "❌ DuckDuckGo search failed"
-            )
-
-            return []
-
-
-        html = response.text
-
-
         print(
             "📦 Search HTML:",
-            len(html),
-            "characters"
+            len(response.text)
         )
 
+        if response.status_code != 200:
+            return []
 
         soup = BeautifulSoup(
-
-            html,
-
+            response.text,
             "html.parser"
-
         )
-
 
         results = []
 
+        # Main DDG result containers
+        containers = soup.select(
+            ".result, .results_links, .result__body"
+        )
 
-        # Normal DDG results
+        for container in containers:
 
-        for result in soup.select(
-            ".result"
-        ):
-
-            title_element = result.select_one(
-                ".result__title"
+            link = container.select_one(
+                "a.result__a"
             )
 
-            link_element = result.select_one(
-                ".result__a"
-            )
+            if not link:
 
+                link = container.select_one(
+                    "a[href]"
+                )
 
-            if not link_element:
-
+            if not link:
                 continue
 
-
-            raw_url = link_element.get(
+            href = link.get(
                 "href",
                 ""
             )
 
-
-            real_url = get_real_url(
-                raw_url
+            title = link.get_text(
+                " ",
+                strip=True
             )
 
-
-            if not real_url.startswith(
-                "http"
-            ):
-
-                continue
-
-
-            title = ""
-
-            if title_element:
-
-                title = title_element.get_text(
-                    " ",
-                    strip=True
-                )
-
-            else:
-
-                title = link_element.get_text(
-                    " ",
-                    strip=True
-                )
-
-
-            if not title:
-
-                title = "Untitled source"
-
-
-            if is_blocked_domain(
-                real_url
-            ):
-
-                print(
-                    "⏭️ Blocked/social:",
-                    real_url
-                )
-
-                continue
-
-
-            results.append({
-
-                "title":
-                    title,
-
-                "url":
-                    real_url
-
-            })
-
-
-            print(
-                f"✅ Result {len(results)}:",
-                title
+            add_result(
+                results,
+                title,
+                href
             )
-
-            print(
-                "   ",
-                real_url
-            )
-
 
             if len(results) >= MAX_RESULTS:
-
                 break
 
+        print(
+            "📚 HTML results:",
+            len(results)
+        )
 
         return results
-
 
     except Exception as e:
 
         print(
-            "❌ DuckDuckGo exception:",
-            str(e)
+            "❌ DDG HTML error:",
+            repr(e)
         )
 
         return []
 
 
 # ============================================================
-# SEARCH FALLBACK - DDG LITE
+# DUCKDUCKGO LITE
 # ============================================================
 
 def search_duckduckgo_lite(question):
 
-    print(
-        "\n🔎 Trying DuckDuckGo Lite..."
-    )
-
+    print("\n🔎 DuckDuckGo Lite fallback")
 
     search_url = (
         "https://lite.duckduckgo.com/lite/?q="
-        + quote(
-            question
-        )
+        + quote(question)
     )
-
 
     try:
 
@@ -377,120 +351,70 @@ def search_duckduckgo_lite(question):
 
             search_url,
 
+            headers=get_headers(),
+
             timeout=SEARCH_TIMEOUT,
 
             allow_redirects=True
 
         )
 
-
         print(
             "🔎 Lite HTTP:",
             response.status_code
         )
 
-
-        if response.status_code != 200:
-
-            return []
-
-
-        soup = BeautifulSoup(
-
-            response.text,
-
-            "html.parser"
-
+        print(
+            "📦 Lite HTML:",
+            len(response.text)
         )
 
+        if response.status_code != 200:
+            return []
+
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
 
         results = []
 
-
-        for link in soup.select(
-            "a"
-        ):
+        for link in soup.find_all("a"):
 
             href = link.get(
                 "href",
                 ""
             )
 
-
             title = link.get_text(
                 " ",
                 strip=True
             )
 
-
-            if not href:
-
+            if not href or not title:
                 continue
 
-
-            real_url = get_real_url(
+            add_result(
+                results,
+                title,
                 href
             )
 
-
-            if not real_url.startswith(
-                "http"
-            ):
-
-                continue
-
-
-            if not title:
-
-                continue
-
-
-            if is_blocked_domain(
-                real_url
-            ):
-
-                continue
-
-
-            # Ignore DDG internal links
-
-            if "duckduckgo.com" in get_domain(
-                real_url
-            ):
-
-                continue
-
-
-            results.append({
-
-                "title":
-                    title,
-
-                "url":
-                    real_url
-
-            })
-
-
-            print(
-                f"✅ Lite result {len(results)}:",
-                title
-            )
-
-
             if len(results) >= MAX_RESULTS:
-
                 break
 
+        print(
+            "📚 Lite results:",
+            len(results)
+        )
 
         return results
-
 
     except Exception as e:
 
         print(
-            "❌ DuckDuckGo Lite error:",
-            str(e)
+            "❌ DDG Lite error:",
+            repr(e)
         )
 
         return []
@@ -506,126 +430,89 @@ def search_web(question):
         question or ""
     ).strip()
 
-
     if not question:
-
         return []
 
-
-    print(
-        "\n" + "=" * 70
-    )
-
-    print(
-        "🌐 WEB SEARCH"
-    )
-
-    print(
-        "🔎 Query:",
-        question
-    )
-
-    print(
-        "=" * 70
-    )
-
-
-    # ========================================================
-    # FIRST SEARCH
-    # ========================================================
+    print("\n" + "=" * 70)
+    print("🌐 WEB SEARCH")
+    print("🔎 Query:", question)
+    print("=" * 70)
 
     results = search_duckduckgo_html(
         question
     )
 
-
-    # ========================================================
-    # FALLBACK
-    # ========================================================
-
     if not results:
 
         print(
-            "\n⚠️ HTML search returned 0 results."
+            "\n⚠️ HTML search returned no results."
         )
 
-        time.sleep(1)
-
+        time.sleep(0.5)
 
         results = search_duckduckgo_lite(
             question
         )
 
-
-    # ========================================================
-    # REMOVE DUPLICATES
-    # ========================================================
-
-    unique = []
-
-    seen = set()
-
-
-    for item in results:
-
-        url = item.get(
-            "url",
-            ""
-        )
-
-
-        if not url:
-
-            continue
-
-
-        normalized = url.rstrip(
-            "/"
-        ).lower()
-
-
-        if normalized in seen:
-
-            continue
-
-
-        seen.add(
-            normalized
-        )
-
-
-        unique.append(
-            item
-        )
-
-
     print(
-        "\n📚 Final search results:",
-        len(unique)
+        "\n📚 FINAL SEARCH RESULTS:",
+        len(results)
     )
 
+    for index, item in enumerate(
+        results,
+        1
+    ):
 
-    return unique[:MAX_RESULTS]
+        print(
+            f"{index}. {item['title']}"
+        )
+
+        print(
+            f"   {item['url']}"
+        )
+
+    return results[:MAX_RESULTS]
+
+
+# ============================================================
+# CLEAN TEXT
+# ============================================================
+
+def clean_text(text):
+
+    if not text:
+        return ""
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text.strip()
 
 
 # ============================================================
 # EXTRACT PAGE TEXT
 # ============================================================
 
-def extract_page_text(html, url):
+def extract_page_text(
+    html,
+    url
+):
+
+    if not html:
+        return ""
 
     soup = BeautifulSoup(
-
         html,
-
         "html.parser"
-
     )
 
-
-    # ========================================================
-    # REMOVE UNWANTED ELEMENTS
-    # ========================================================
+    # --------------------------------------------------------
+    # Remove unwanted
+    # --------------------------------------------------------
 
     remove_tags = [
 
@@ -643,65 +530,81 @@ def extract_page_text(html, url):
         "iframe",
 
         "svg",
-
         "canvas",
 
         "button",
-
         "input",
+        "textarea",
 
-        "textarea"
+        "select"
 
     ]
-
 
     for tag in soup.find_all(
         remove_tags
     ):
 
-        tag.decompose()
+        try:
+            tag.decompose()
+        except Exception:
+            pass
 
+    # --------------------------------------------------------
+    # Remove common UI
+    # --------------------------------------------------------
 
-    # ========================================================
-    # REMOVE COMMON ADS / UI
-    # ========================================================
+    bad_words = [
+
+        "advertisement",
+        "cookie",
+        "popup",
+        "modal",
+        "newsletter",
+        "social-share",
+        "share-buttons",
+        "sidebar"
+
+    ]
 
     for tag in soup.find_all(
-
-        class_=lambda value:
-
-        value and any(
-
-            word in str(value).lower()
-
-            for word in [
-
-                "advertisement",
-                "cookie",
-                "popup",
-                "modal",
-                "sidebar",
-                "social-share",
-                "newsletter"
-
-            ]
-
-        )
-
+        True
     ):
 
         try:
 
-            tag.decompose()
+            classes = " ".join(
+                tag.get(
+                    "class",
+                    []
+                )
+            ).lower()
+
+            tag_id = str(
+                tag.get(
+                    "id",
+                    ""
+                )
+            ).lower()
+
+            combined = (
+                classes
+                + " "
+                + tag_id
+            )
+
+            if any(
+                word in combined
+                for word in bad_words
+            ):
+
+                tag.decompose()
 
         except Exception:
-
             pass
 
-
-    # ========================================================
-    # TITLE
-    # ========================================================
+    # --------------------------------------------------------
+    # Title
+    # --------------------------------------------------------
 
     title = ""
 
@@ -712,10 +615,9 @@ def extract_page_text(html, url):
             strip=True
         )
 
-
-    # ========================================================
-    # META DESCRIPTION
-    # ========================================================
+    # --------------------------------------------------------
+    # Meta description
+    # --------------------------------------------------------
 
     description = ""
 
@@ -727,7 +629,6 @@ def extract_page_text(html, url):
         }
     )
 
-
     if meta:
 
         description = meta.get(
@@ -735,107 +636,95 @@ def extract_page_text(html, url):
             ""
         )
 
-
-    # ========================================================
-    # PRIORITY CONTENT
-    # ========================================================
+    # --------------------------------------------------------
+    # Find main content
+    # --------------------------------------------------------
 
     content = None
-
 
     selectors = [
 
         "article",
-
         "main",
-
         "[role='main']",
 
-        ".article",
-
         ".article-content",
+        ".article-body",
 
         ".post-content",
+        ".post-body",
 
         ".entry-content",
 
-        ".content",
+        ".story-body",
+
+        ".content-body",
 
         "#content"
 
     ]
 
+    best_length = 0
 
     for selector in selectors:
 
-        found = soup.select_one(
-            selector
-        )
+        try:
 
-
-        if found:
-
-            text_length = len(
-                found.get_text(
-                    " ",
-                    strip=True
-                )
+            elements = soup.select(
+                selector
             )
 
+            for element in elements:
 
-            if text_length >= MIN_TEXT_LENGTH:
+                length = len(
+                    element.get_text(
+                        " ",
+                        strip=True
+                    )
+                )
 
-                content = found
+                if length > best_length:
 
-                break
+                    best_length = length
+                    content = element
 
+        except Exception:
+            pass
 
-    # ========================================================
-    # FALLBACK TO BODY
-    # ========================================================
+    # --------------------------------------------------------
+    # Body fallback
+    # --------------------------------------------------------
 
     if content is None:
 
         content = soup.body
 
-
     if content is None:
 
         return ""
 
-
-    # ========================================================
-    # EXTRACT PARAGRAPHS
-    # ========================================================
+    # --------------------------------------------------------
+    # Paragraphs
+    # --------------------------------------------------------
 
     paragraphs = []
-
 
     for p in content.find_all(
         "p"
     ):
 
-        text = p.get_text(
-            " ",
-            strip=True
+        text = clean_text(
+            p.get_text(
+                " ",
+                strip=True
+            )
         )
-
-
-        text = " ".join(
-            text.split()
-        )
-
 
         if len(text) >= 30:
 
             paragraphs.append(
                 text
             )
-
-
-    # ========================================================
-    # IF PARAGRAPHS EMPTY
-    # ========================================================
 
     if paragraphs:
 
@@ -845,220 +734,231 @@ def extract_page_text(html, url):
 
     else:
 
-        text = content.get_text(
-            " ",
-            strip=True
+        text = clean_text(
+            content.get_text(
+                " ",
+                strip=True
+            )
         )
 
+    # --------------------------------------------------------
+    # Add metadata if content short
+    # --------------------------------------------------------
 
-    text = " ".join(
-        text.split()
+    if len(text) < 300:
+
+        extra = []
+
+        if title:
+            extra.append(title)
+
+        if description:
+            extra.append(description)
+
+        if extra:
+
+            text = (
+                " ".join(extra)
+                + " "
+                + text
+            )
+
+    text = clean_text(
+        text
     )
-
-
-    # ========================================================
-    # ADD TITLE / DESCRIPTION WHEN USEFUL
-    # ========================================================
-
-    if title and len(text) < 300:
-
-        text = (
-            title
-            + ". "
-            + text
-        )
-
-
-    if description and len(text) < 300:
-
-        text = (
-            text
-            + " "
-            + description
-        )
-
 
     return text[:MAX_TEXT_LENGTH]
 
 
 # ============================================================
-# READ PAGE
+# READ PAGE WITH RETRY
 # ============================================================
 
 def read_page(url):
 
     if not url:
-
         return ""
-
 
     url = str(
         url
     ).strip()
-
 
     print(
         "\n🌐 Opening:",
         url
     )
 
+    for attempt, user_agent in enumerate(
+        USER_AGENTS,
+        1
+    ):
 
-    try:
-
-        response = session.get(
-
-            url,
-
-            timeout=PAGE_TIMEOUT,
-
-            allow_redirects=True
-
-        )
-
-
-        print(
-            "📡 Page HTTP:",
-            response.status_code
-        )
-
-
-        print(
-            "🔗 Final URL:",
-            response.url
-        )
-
-
-        content_type = response.headers.get(
-            "Content-Type",
-            ""
-        )
-
-
-        print(
-            "📦 Content-Type:",
-            content_type
-        )
-
-
-        # ====================================================
-        # HTTP ERROR
-        # ====================================================
-
-        if response.status_code >= 400:
+        try:
 
             print(
-                f"⚠️ Page blocked/error: "
-                f"HTTP {response.status_code}"
+                f"🔄 Page attempt {attempt}"
             )
 
-            return ""
+            response = session.get(
 
+                url,
 
-        # ====================================================
-        # NON HTML
-        # ====================================================
+                headers=get_headers(
+                    user_agent
+                ),
 
-        if (
+                timeout=PAGE_TIMEOUT,
 
-            "text/html"
-            not in content_type.lower()
+                allow_redirects=True
 
-            and
-
-            "application/xhtml+xml"
-            not in content_type.lower()
-
-        ):
+            )
 
             print(
-                "⚠️ Not an HTML webpage"
+                "📡 Page HTTP:",
+                response.status_code
             )
-
-            return ""
-
-
-        # ====================================================
-        # EXTRACT
-        # ====================================================
-
-        text = extract_page_text(
-
-            response.text,
-
-            response.url
-
-        )
-
-
-        print(
-            "📝 Extracted characters:",
-            len(text)
-        )
-
-
-        if len(text) < MIN_TEXT_LENGTH:
 
             print(
-                "⚠️ Page text too short"
+                "🔗 Final URL:",
+                response.url
             )
 
-            return ""
+            content_type = response.headers.get(
+                "Content-Type",
+                ""
+            )
 
+            print(
+                "📦 Content-Type:",
+                content_type
+            )
 
-        print(
-            "✅ Page readable"
-        )
+            print(
+                "📦 Response size:",
+                len(response.content)
+            )
 
+            # ------------------------------------------------
+            # Success
+            # ------------------------------------------------
 
-        return text
+            if response.status_code == 200:
 
+                if (
 
-    except requests.exceptions.Timeout:
+                    "text/html"
+                    not in content_type.lower()
 
-        print(
-            "⏱️ Page timeout"
-        )
+                    and
 
-        return ""
+                    "application/xhtml+xml"
+                    not in content_type.lower()
 
+                ):
 
-    except requests.exceptions.TooManyRedirects:
+                    print(
+                        "⚠️ Non-HTML source"
+                    )
 
-        print(
-            "🔁 Too many redirects"
-        )
+                    return ""
 
-        return ""
+                text = extract_page_text(
 
+                    response.text,
 
-    except requests.exceptions.ConnectionError as e:
+                    response.url
 
-        print(
-            "🌐 Connection error:",
-            str(e)
-        )
+                )
 
-        return ""
+                print(
+                    "📝 Extracted characters:",
+                    len(text)
+                )
 
+                if len(text) >= MIN_TEXT_LENGTH:
 
-    except requests.exceptions.RequestException as e:
+                    print(
+                        "✅ PAGE READ SUCCESS"
+                    )
 
-        print(
-            "❌ Request error:",
-            str(e)
-        )
+                    return text
 
-        return ""
+                print(
+                    "⚠️ Text too short"
+                )
 
+                continue
 
-    except Exception as e:
+            # ------------------------------------------------
+            # Blocked
+            # ------------------------------------------------
 
-        print(
-            "❌ Page read failed:",
-            str(e)
-        )
+            if response.status_code in (
+                401,
+                403,
+                406,
+                429
+            ):
 
-        return ""
+                print(
+                    "⚠️ Website blocked request:",
+                    response.status_code
+                )
+
+                time.sleep(0.7)
+
+                continue
+
+            # ------------------------------------------------
+            # Other HTTP
+            # ------------------------------------------------
+
+            print(
+                "⚠️ HTTP error:",
+                response.status_code
+            )
+
+        except requests.exceptions.Timeout:
+
+            print(
+                "⏱️ Timeout"
+            )
+
+        except requests.exceptions.TooManyRedirects:
+
+            print(
+                "🔁 Too many redirects"
+            )
+
+            break
+
+        except requests.exceptions.ConnectionError as e:
+
+            print(
+                "🌐 Connection error:",
+                repr(e)
+            )
+
+        except requests.exceptions.RequestException as e:
+
+            print(
+                "❌ Request error:",
+                repr(e)
+            )
+
+        except Exception as e:
+
+            print(
+                "❌ Unexpected read error:",
+                repr(e)
+            )
+
+    print(
+        "❌ Could not read page:",
+        url
+    )
+
+    return ""
 
 
 # ============================================================
@@ -1067,47 +967,28 @@ def read_page(url):
 
 def research(question):
 
-    print(
-        "\n" + "=" * 70
-    )
-
-    print(
-        "🧠 RESEARCH TEST"
-    )
-
-    print(
-        "❓ Question:",
-        question
-    )
-
-    print(
-        "=" * 70
-    )
-
+    print("\n" + "=" * 70)
+    print("🧠 RESEARCH TEST")
+    print("❓ Question:", question)
+    print("=" * 70)
 
     results = search_web(
         question
     )
 
-
     if not results:
 
         print(
-            "❌ No sources found."
+            "❌ NO SEARCH RESULTS"
         )
 
         return []
 
-
     readable_sources = []
 
-
     for index, result in enumerate(
-
         results,
-
         1
-
     ):
 
         print(
@@ -1115,7 +996,7 @@ def research(question):
         )
 
         print(
-            f"📄 SOURCE {index}"
+            f"📄 SOURCE {index}/{len(results)}"
         )
 
         print(
@@ -1128,22 +1009,19 @@ def research(question):
             result["url"]
         )
 
-
         if is_blocked_domain(
             result["url"]
         ):
 
             print(
-                "⏭️ Social/video source skipped"
+                "⏭️ Social/video skipped"
             )
 
             continue
 
-
         text = read_page(
             result["url"]
         )
-
 
         if text:
 
@@ -1160,7 +1038,6 @@ def research(question):
 
             })
 
-
             print(
                 "✅ Source successfully read"
             )
@@ -1171,13 +1048,17 @@ def research(question):
                 "⚠️ Source could not be read"
             )
 
-
     print(
         "\n" + "=" * 70
     )
 
     print(
-        "📚 Readable sources:",
+        "📚 SEARCH RESULTS:",
+        len(results)
+    )
+
+    print(
+        "📖 READABLE SOURCES:",
         len(readable_sources)
     )
 
@@ -1185,5 +1066,5 @@ def research(question):
         "=" * 70
     )
 
-
     return readable_sources
+```
