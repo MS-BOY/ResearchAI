@@ -17,38 +17,49 @@ import time
 # CONFIG
 # ============================================================
 
-MAX_RESULTS = 5
+MAX_SEARCH_RESULTS = 8
+
+MAX_READABLE_SOURCES = 5
 
 MAX_TEXT_LENGTH = 8000
 
-SEARCH_TIMEOUT = 20
-
-PAGE_TIMEOUT = 20
-
 MIN_TEXT_LENGTH = 80
+
+SEARCH_TIMEOUT = 15
+
+PAGE_TIMEOUT = 15
+
+RETRY_COUNT = 2
 
 
 # ============================================================
-# WEB SESSION
+# SESSION
 # ============================================================
 
 session = requests.Session()
 
+
 session.headers.update({
 
     "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "Mozilla/5.0 (X11; Linux x86_64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36",
 
     "Accept":
         "text/html,application/xhtml+xml,"
-        "application/xhtml+xml;q=0.9,"
-        "application/xml;q=0.8,"
-        "*/*;q=0.7",
+        "application/xml;q=0.9,"
+        "image/avif,image/webp,"
+        "*/*;q=0.8",
 
     "Accept-Language":
         "en-US,en;q=0.9",
+
+    "Cache-Control":
+        "no-cache",
+
+    "Pragma":
+        "no-cache",
 
     "Connection":
         "keep-alive"
@@ -74,7 +85,7 @@ def get_domain(url):
 
 
 # ============================================================
-# BLOCK SOCIAL / VIDEO
+# BLOCKED DOMAINS
 # ============================================================
 
 def is_blocked_domain(url):
@@ -99,13 +110,14 @@ def is_blocked_domain(url):
     ]
 
     return any(
-        site in domain
+        domain == site
+        or domain.endswith("." + site)
         for site in blocked
     )
 
 
 # ============================================================
-# GET REAL URL
+# REAL DUCKDUCKGO URL
 # ============================================================
 
 def get_real_url(url):
@@ -121,7 +133,7 @@ def get_real_url(url):
 
 
     # ----------------------------------------
-    # Protocol-relative URL
+    # Relative URL
     # ----------------------------------------
 
     if url.startswith("//"):
@@ -130,7 +142,7 @@ def get_real_url(url):
 
 
     # ----------------------------------------
-    # DuckDuckGo redirect
+    # DDG redirect
     # ----------------------------------------
 
     if "duckduckgo.com/l/?" in url:
@@ -164,7 +176,7 @@ def get_real_url(url):
         except Exception as e:
 
             print(
-                "⚠️ URL decode failed:",
+                "⚠️ URL decode error:",
                 e
             )
 
@@ -173,13 +185,13 @@ def get_real_url(url):
 
 
 # ============================================================
-# DUCKDUCKGO HTML SEARCH
+# SEARCH DUCKDUCKGO
 # ============================================================
 
 def search_duckduckgo(question):
 
     print(
-        "\n🔎 WEB SEARCH"
+        "\n🔎 Searching DuckDuckGo..."
     )
 
     print(
@@ -190,9 +202,7 @@ def search_duckduckgo(question):
 
     search_url = (
         "https://html.duckduckgo.com/html/?q="
-        + quote(
-            question
-        )
+        + quote(question)
     )
 
 
@@ -210,7 +220,7 @@ def search_duckduckgo(question):
 
 
         print(
-            "📡 Search status:",
+            "📡 DDG HTTP:",
             response.status_code
         )
 
@@ -218,8 +228,7 @@ def search_duckduckgo(question):
         if response.status_code != 200:
 
             print(
-                "❌ Search server returned:",
-                response.status_code
+                "❌ DDG search failed"
             )
 
             return []
@@ -237,11 +246,11 @@ def search_duckduckgo(question):
         results = []
 
 
-        for result in soup.select(
+        for item in soup.select(
             ".result"
         ):
 
-            link = result.select_one(
+            link = item.select_one(
                 ".result__a"
             )
 
@@ -273,15 +282,10 @@ def search_duckduckgo(question):
                 real_url
             ):
 
-                print(
-                    "⏭️ Social/video skipped:",
-                    real_url
-                )
-
                 continue
 
 
-            title_element = result.select_one(
+            title_element = item.select_one(
                 ".result__title"
             )
 
@@ -306,29 +310,59 @@ def search_duckduckgo(question):
                 title = "Untitled source"
 
 
+            # ------------------------------------
+            # DDG RESULT SNIPPET
+            # ------------------------------------
+
+            snippet_element = (
+                item.select_one(
+                    ".result__snippet"
+                )
+            )
+
+
+            if snippet_element:
+
+                snippet = snippet_element.get_text(
+                    " ",
+                    strip=True
+                )
+
+            else:
+
+                snippet = ""
+
+
             results.append({
 
                 "title":
                     title,
 
                 "url":
-                    real_url
+                    real_url,
+
+                "snippet":
+                    snippet
 
             })
 
 
             print(
-                f"✅ Result {len(results)}:",
+                f"✅ Search result {len(results)}:"
+            )
+
+            print(
+                "   Title:",
                 title
             )
 
             print(
-                "   ",
+                "   URL:",
                 real_url
             )
 
 
-            if len(results) >= MAX_RESULTS:
+            if len(results) >= MAX_SEARCH_RESULTS:
 
                 break
 
@@ -339,7 +373,7 @@ def search_duckduckgo(question):
     except requests.exceptions.Timeout:
 
         print(
-            "⏱️ DuckDuckGo search timeout"
+            "⏱️ DuckDuckGo timeout"
         )
 
         return []
@@ -358,7 +392,7 @@ def search_duckduckgo(question):
     except Exception as e:
 
         print(
-            "❌ Search error:",
+            "❌ DuckDuckGo search error:",
             e
         )
 
@@ -366,7 +400,7 @@ def search_duckduckgo(question):
 
 
 # ============================================================
-# WEB SEARCH
+# SEARCH WEB
 # ============================================================
 
 def search_web(question):
@@ -386,7 +420,7 @@ def search_web(question):
     )
 
     print(
-        "🌐 WEB SERVER SEARCH"
+        "🌐 RENDER WEB SEARCH"
     )
 
     print(
@@ -400,7 +434,7 @@ def search_web(question):
 
 
     # ----------------------------------------
-    # Remove duplicate URLs
+    # Remove duplicates
     # ----------------------------------------
 
     unique = []
@@ -408,9 +442,9 @@ def search_web(question):
     seen = set()
 
 
-    for item in results:
+    for result in results:
 
-        url = item.get(
+        url = result.get(
             "url",
             ""
         )
@@ -437,39 +471,24 @@ def search_web(question):
 
 
         unique.append(
-            item
+            result
         )
 
 
     print(
-        "\n📚 Final results:",
+        "\n📚 Search results:",
         len(unique)
     )
 
 
-    return unique[:MAX_RESULTS]
+    return unique
 
 
 # ============================================================
-# EXTRACT PAGE TEXT
+# REMOVE BAD HTML
 # ============================================================
 
-def extract_page_text(
-    html
-):
-
-    soup = BeautifulSoup(
-
-        html,
-
-        "html.parser"
-
-    )
-
-
-    # ========================================================
-    # REMOVE UNWANTED ELEMENTS
-    # ========================================================
+def clean_soup(soup):
 
     remove_tags = [
 
@@ -492,7 +511,11 @@ def extract_page_text(
         "button",
         "input",
 
-        "textarea"
+        "textarea",
+
+        "select",
+
+        "option"
 
     ]
 
@@ -510,9 +533,23 @@ def extract_page_text(
             pass
 
 
-    # ========================================================
-    # REMOVE COMMON UI / ADS
-    # ========================================================
+    # ----------------------------------------
+    # Remove common UI
+    # ----------------------------------------
+
+    bad_words = [
+
+        "advertisement",
+        "cookie",
+        "cookie-banner",
+        "popup",
+        "modal",
+        "newsletter",
+        "social-share",
+        "sidebar"
+
+    ]
+
 
     for tag in soup.find_all(
 
@@ -524,17 +561,7 @@ def extract_page_text(
                 value
             ).lower()
 
-            for word in [
-
-                "advertisement",
-                "cookie",
-                "popup",
-                "modal",
-                "sidebar",
-                "newsletter",
-                "social-share"
-
-            ]
+            for word in bad_words
 
         )
 
@@ -549,124 +576,206 @@ def extract_page_text(
             pass
 
 
-    # ========================================================
-    # TITLE
-    # ========================================================
+    return soup
 
-    title = ""
 
-    if soup.title:
+# ============================================================
+# EXTRACT PAGE TEXT
+# ============================================================
 
-        title = soup.title.get_text(
-            " ",
-            strip=True
+def extract_page_text(
+    html,
+    url=""
+):
+
+    try:
+
+        soup = BeautifulSoup(
+
+            html,
+
+            "html.parser"
+
         )
 
 
-    # ========================================================
-    # DESCRIPTION
-    # ========================================================
-
-    description = ""
-
-    meta = soup.find(
-        "meta",
-        attrs={
-            "name":
-                "description"
-        }
-    )
-
-
-    if meta:
-
-        description = meta.get(
-            "content",
-            ""
+        soup = clean_soup(
+            soup
         )
 
 
-    # ========================================================
-    # FIND MAIN CONTENT
-    # ========================================================
+        # ====================================================
+        # TITLE
+        # ====================================================
 
-    content = None
-
-
-    selectors = [
-
-        "article",
-
-        "main",
-
-        "[role='main']",
-
-        ".article",
-
-        ".article-content",
-
-        ".post-content",
-
-        ".entry-content",
-
-        ".content",
-
-        "#content"
-
-    ]
+        title = ""
 
 
-    for selector in selectors:
+        if soup.title:
 
-        element = soup.select_one(
-            selector
-        )
-
-
-        if element:
-
-            element_text = element.get_text(
+            title = soup.title.get_text(
                 " ",
                 strip=True
             )
 
 
-            if len(element_text) >= MIN_TEXT_LENGTH:
+        # ====================================================
+        # META DESCRIPTION
+        # ====================================================
 
-                content = element
+        description = ""
+
+
+        meta = soup.find(
+
+            "meta",
+
+            attrs={
+                "name":
+                    "description"
+            }
+
+        )
+
+
+        if not meta:
+
+            meta = soup.find(
+
+                "meta",
+
+                attrs={
+                    "property":
+                        "og:description"
+                }
+
+            )
+
+
+        if meta:
+
+            description = meta.get(
+                "content",
+                ""
+            )
+
+
+        # ====================================================
+        # FIND MAIN CONTENT
+        # ====================================================
+
+        content = None
+
+
+        selectors = [
+
+            "article",
+
+            "main",
+
+            "[role='main']",
+
+            ".article-content",
+
+            ".article",
+
+            ".post-content",
+
+            ".entry-content",
+
+            ".story-body",
+
+            ".content",
+
+            "#content"
+
+        ]
+
+
+        for selector in selectors:
+
+            found = soup.select_one(
+                selector
+            )
+
+
+            if not found:
+
+                continue
+
+
+            candidate_text = found.get_text(
+                " ",
+                strip=True
+            )
+
+
+            if len(candidate_text) >= MIN_TEXT_LENGTH:
+
+                content = found
 
                 break
 
 
-    # ========================================================
-    # BODY FALLBACK
-    # ========================================================
+        # ====================================================
+        # BODY FALLBACK
+        # ====================================================
 
-    if content is None:
+        if content is None:
 
-        content = soup.body
-
-
-    if content is None:
-
-        return ""
+            content = soup.body
 
 
-    # ========================================================
-    # PARAGRAPHS
-    # ========================================================
+        if content is None:
 
-    paragraphs = []
+            return ""
 
 
-    for p in content.find_all(
-        "p"
-    ):
+        # ====================================================
+        # PARAGRAPHS
+        # ====================================================
 
-        text = p.get_text(
-            " ",
-            strip=True
-        )
+        paragraphs = []
+
+
+        for p in content.find_all(
+            "p"
+        ):
+
+            text = p.get_text(
+                " ",
+                strip=True
+            )
+
+
+            text = " ".join(
+                text.split()
+            )
+
+
+            if len(text) >= 30:
+
+                paragraphs.append(
+                    text
+                )
+
+
+        # ====================================================
+        # TEXT
+        # ====================================================
+
+        if paragraphs:
+
+            text = " ".join(
+                paragraphs
+            )
+
+        else:
+
+            text = content.get_text(
+                " ",
+                strip=True
+            )
 
 
         text = " ".join(
@@ -674,65 +783,97 @@ def extract_page_text(
         )
 
 
-        if len(text) >= 30:
+        # ====================================================
+        # SHORT PAGE FALLBACK
+        # ====================================================
 
-            paragraphs.append(
-                text
-            )
+        if len(text) < MIN_TEXT_LENGTH:
+
+            pieces = []
 
 
-    # ========================================================
-    # CREATE TEXT
-    # ========================================================
+            if title:
 
-    if paragraphs:
+                pieces.append(
+                    title
+                )
 
-        text = " ".join(
-            paragraphs
+
+            if description:
+
+                pieces.append(
+                    description
+                )
+
+
+            if pieces:
+
+                text = " ".join(
+                    pieces
+                )
+
+
+        return text[
+            :MAX_TEXT_LENGTH
+        ]
+
+
+    except Exception as e:
+
+        print(
+            "❌ Text extraction error:",
+            e
         )
 
-    else:
-
-        text = content.get_text(
-            " ",
-            strip=True
-        )
-
-
-    text = " ".join(
-        text.split()
-    )
-
-
-    # ========================================================
-    # TITLE / DESCRIPTION
-    # ========================================================
-
-    if title and len(text) < 300:
-
-        text = (
-            title
-            + ". "
-            + text
-        )
-
-
-    if description and len(text) < 300:
-
-        text = (
-            text
-            + " "
-            + description
-        )
-
-
-    return text[
-        :MAX_TEXT_LENGTH
-    ]
+        return ""
 
 
 # ============================================================
-# READ WEB PAGE
+# FETCH WEBPAGE
+# ============================================================
+
+def fetch_page(
+    url
+):
+
+    headers = {
+
+        "User-Agent":
+            session.headers.get(
+                "User-Agent"
+            ),
+
+        "Accept":
+            "text/html,application/xhtml+xml,"
+            "application/xml;q=0.9,*/*;q=0.8",
+
+        "Accept-Language":
+            "en-US,en;q=0.9",
+
+        "Referer":
+            "https://www.google.com/"
+
+    }
+
+
+    response = session.get(
+
+        url,
+
+        headers=headers,
+
+        timeout=PAGE_TIMEOUT,
+
+        allow_redirects=True
+
+    )
+
+
+    return response
+
+
+# ============================================================
+# READ PAGE
 # ============================================================
 
 def read_page(url):
@@ -760,7 +901,7 @@ def read_page(url):
 
 
     print(
-        "\n🌐 WEB SERVER OPENING:"
+        "\n🌐 Reading webpage:"
     )
 
     print(
@@ -768,156 +909,258 @@ def read_page(url):
     )
 
 
-    try:
+    for attempt in range(
+        RETRY_COUNT + 1
+    ):
 
-        response = session.get(
-
-            url,
-
-            timeout=PAGE_TIMEOUT,
-
-            allow_redirects=True
-
-        )
-
-
-        print(
-            "📡 HTTP:",
-            response.status_code
-        )
-
-        print(
-            "🔗 Final URL:",
-            response.url
-        )
-
-
-        if response.status_code >= 400:
+        try:
 
             print(
-                "⚠️ HTTP error"
+                f"🔄 Attempt {attempt + 1}/"
+                f"{RETRY_COUNT + 1}"
             )
 
-            return ""
 
+            response = fetch_page(
+                url
+            )
 
-        content_type = response.headers.get(
-            "Content-Type",
-            ""
-        ).lower()
-
-
-        print(
-            "📦 Content-Type:",
-            content_type
-        )
-
-
-        # Only HTML
-        if (
-
-            "text/html" not in content_type
-
-            and
-
-            "application/xhtml+xml"
-            not in content_type
-
-        ):
 
             print(
-                "⚠️ Not an HTML page"
+                "📡 HTTP:",
+                response.status_code
             )
 
-            return ""
-
-
-        text = extract_page_text(
-
-            response.text
-
-        )
-
-
-        print(
-            "📝 Extracted:",
-            len(text),
-            "characters"
-        )
-
-
-        if len(text) < MIN_TEXT_LENGTH:
 
             print(
-                "⚠️ Text too short"
+                "🔗 Final URL:",
+                response.url
             )
 
-            return ""
+
+            content_type = response.headers.get(
+                "Content-Type",
+                ""
+            ).lower()
 
 
-        print(
-            "✅ Page readable"
-        )
+            print(
+                "📦 Content-Type:",
+                content_type
+            )
 
 
-        return text
+            # --------------------------------------------
+            # SUCCESS
+            # --------------------------------------------
+
+            if response.status_code == 200:
+
+                if (
+
+                    "text/html"
+                    in content_type
+
+                    or
+
+                    "application/xhtml+xml"
+                    in content_type
+
+                ):
+
+                    text = extract_page_text(
+
+                        response.text,
+
+                        response.url
+
+                    )
 
 
-    except requests.exceptions.Timeout:
-
-        print(
-            "⏱️ Page timeout:",
-            url
-        )
-
-        return ""
+                    print(
+                        "📝 Extracted:",
+                        len(text),
+                        "characters"
+                    )
 
 
-    except requests.exceptions.TooManyRedirects:
+                    if len(text) >= MIN_TEXT_LENGTH:
 
-        print(
-            "🔁 Too many redirects:",
-            url
-        )
+                        print(
+                            "✅ WEBPAGE READ SUCCESS"
+                        )
 
-        return ""
-
-
-    except requests.exceptions.ConnectionError as e:
-
-        print(
-            "🌐 Connection error:",
-            e
-        )
-
-        return ""
+                        return text
 
 
-    except requests.exceptions.RequestException as e:
-
-        print(
-            "❌ Request error:",
-            e
-        )
-
-        return ""
+                    print(
+                        "⚠️ Page text too short"
+                    )
 
 
-    except Exception as e:
+                else:
 
-        print(
-            "❌ Page reading error:",
-            e
-        )
+                    print(
+                        "⚠️ Content is not HTML"
+                    )
 
-        return ""
+
+            # --------------------------------------------
+            # BLOCKED
+            # --------------------------------------------
+
+            elif response.status_code in (
+                403,
+                429,
+                503
+            ):
+
+                print(
+                    "⚠️ Website blocked request:",
+                    response.status_code
+                )
+
+
+            else:
+
+                print(
+                    "⚠️ HTTP error:",
+                    response.status_code
+                )
+
+
+        except requests.exceptions.Timeout:
+
+            print(
+                "⏱️ Page timeout"
+            )
+
+
+        except requests.exceptions.TooManyRedirects:
+
+            print(
+                "🔁 Too many redirects"
+            )
+
+            break
+
+
+        except requests.exceptions.ConnectionError as e:
+
+            print(
+                "🌐 Connection error:",
+                e
+            )
+
+
+        except requests.exceptions.RequestException as e:
+
+            print(
+                "❌ Request error:",
+                e
+            )
+
+
+        except Exception as e:
+
+            print(
+                "❌ Unexpected page error:",
+                e
+            )
+
+
+        if attempt < RETRY_COUNT:
+
+            time.sleep(
+                1
+            )
+
+
+    print(
+        "❌ Could not read webpage"
+    )
+
+
+    return ""
 
 
 # ============================================================
-# RESEARCH TEST
+# SNIPPET FALLBACK
+# ============================================================
+
+def create_snippet_source(
+    result
+):
+
+    title = str(
+        result.get(
+            "title",
+            "Search result"
+        )
+    ).strip()
+
+
+    url = str(
+        result.get(
+            "url",
+            ""
+        )
+    ).strip()
+
+
+    snippet = str(
+        result.get(
+            "snippet",
+            ""
+        )
+    ).strip()
+
+
+    if len(snippet) < MIN_TEXT_LENGTH:
+
+        return None
+
+
+    return {
+
+        "title":
+            title,
+
+        "url":
+            url,
+
+        "text":
+            snippet[:MAX_TEXT_LENGTH],
+
+        "fallback":
+            True
+
+    }
+
+
+# ============================================================
+# FULL RESEARCH
 # ============================================================
 
 def research(question):
+
+    print(
+        "\n" + "=" * 70
+    )
+
+    print(
+        "🧠 RESEARCH"
+    )
+
+    print(
+        "❓ Question:",
+        question
+    )
+
+    print(
+        "=" * 70
+    )
+
 
     results = search_web(
         question
@@ -927,7 +1170,7 @@ def research(question):
     if not results:
 
         print(
-            "❌ No web results"
+            "❌ No search results"
         )
 
         return []
@@ -935,6 +1178,10 @@ def research(question):
 
     sources = []
 
+
+    # ========================================================
+    # TRY EVERY SEARCH RESULT
+    # ========================================================
 
     for index, result in enumerate(
 
@@ -944,59 +1191,122 @@ def research(question):
 
     ):
 
+        if len(sources) >= MAX_READABLE_SOURCES:
+
+            break
+
+
         print(
-            "\n" + "=" * 60
+            "\n" + "-" * 60
         )
 
         print(
-            f"📄 SOURCE {index}"
+            f"📄 SOURCE {index}/{len(results)}"
+        )
+
+
+        title = result.get(
+            "title",
+            "Untitled source"
+        )
+
+
+        url = result.get(
+            "url",
+            ""
+        )
+
+
+        print(
+            "📄 Title:",
+            title
         )
 
         print(
-            "Title:",
-            result["title"]
+            "🔗 URL:",
+            url
         )
 
-        print(
-            "URL:",
-            result["url"]
-        )
 
+        # ====================================================
+        # TRY REAL WEBPAGE
+        # ====================================================
 
         text = read_page(
-            result["url"]
+            url
         )
 
 
-        if not text:
+        if text:
+
+            sources.append({
+
+                "title":
+                    title,
+
+                "url":
+                    url,
+
+                "text":
+                    text
+
+            })
+
 
             print(
-                "⚠️ Could not read"
+                "✅ Real webpage source added"
             )
+
 
             continue
 
 
-        sources.append({
+        # ====================================================
+        # SNIPPET FALLBACK
+        # ====================================================
 
-            "title":
-                result["title"],
+        print(
+            "⚠️ Webpage unavailable"
+        )
 
-            "url":
-                result["url"],
+        print(
+            "🔄 Trying search snippet..."
+        )
 
-            "text":
-                text
 
-        })
+        fallback = create_snippet_source(
+            result
+        )
 
+
+        if fallback:
+
+            sources.append(
+                fallback
+            )
+
+
+            print(
+                "✅ Search snippet fallback added"
+            )
+
+        else:
+
+            print(
+                "❌ No usable content"
+            )
+
+
+    # ========================================================
+    # FINAL
+    # ========================================================
 
     print(
         "\n" + "=" * 70
     )
 
     print(
-        "✅ READABLE SOURCES:",
+        "📚 TOTAL SOURCES:",
         len(sources)
     )
 
