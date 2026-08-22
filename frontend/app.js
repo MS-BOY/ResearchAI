@@ -1,8 +1,4 @@
 // ==========================================
-// Research AI - Frontend App
-// ==========================================
-
-// ==========================================
 // DOM Elements
 // ==========================================
 
@@ -18,20 +14,21 @@ const language = document.getElementById("language");
 // API URL
 // ==========================================
 //
-// Frontend এবং Flask একই Render service-এ থাকলে:
-//
+// Render:
 // /research
 //
-// Local development-এ:
-// http://127.0.0.1:5000/research
+// Local যদি Flask frontend serve করে:
+// /research
 //
+// আলাদা frontend server হলে:
+// http://127.0.0.1:5000/research
 // ==========================================
 
 const API_URL = "/research";
 
 
 // ==========================================
-// Event Listeners
+// Button Event
 // ==========================================
 
 if (button) {
@@ -43,6 +40,10 @@ if (button) {
 
 }
 
+
+// ==========================================
+// Enter Key
+// ==========================================
 
 if (question) {
 
@@ -131,6 +132,7 @@ async function startResearch() {
     if (summary) {
 
         summary.innerHTML = `
+
             <div class="loading">
 
                 <p>
@@ -156,6 +158,7 @@ async function startResearch() {
                 </p>
 
             </div>
+
         `;
 
     }
@@ -177,6 +180,7 @@ async function startResearch() {
             "Question:",
             text
         );
+
 
         console.log(
             "Language:",
@@ -225,35 +229,24 @@ async function startResearch() {
         const contentType =
             response.headers.get(
                 "content-type"
-            );
-
-
-        let data;
+            ) || "";
 
 
         if (
-            contentType &&
-            contentType.includes(
+            !contentType.includes(
                 "application/json"
             )
         ) {
 
-            data =
-                await response.json();
-
-        }
-
-        else {
-
-            const rawText =
-                await response.text();
-
             throw new Error(
-                "Server returned non-JSON response: " +
-                rawText.substring(0, 300)
+                `Server returned ${response.status} instead of JSON.`
             );
 
         }
+
+
+        const data =
+            await response.json();
 
 
         console.log(
@@ -271,7 +264,7 @@ async function startResearch() {
             throw new Error(
 
                 data.error ||
-                "Research failed"
+                `Research failed (${response.status})`
 
             );
 
@@ -279,7 +272,7 @@ async function startResearch() {
 
 
         // ==================================
-        // Answer Language
+        // Language Info
         // ==================================
 
         let languageHTML = "";
@@ -290,6 +283,7 @@ async function startResearch() {
         ) {
 
             languageHTML = `
+
                 <div class="language-info">
 
                     🌐 Answer language:
@@ -301,6 +295,7 @@ async function startResearch() {
                     </strong>
 
                 </div>
+
             `;
 
         }
@@ -353,9 +348,11 @@ async function startResearch() {
                         </h3>
 
                         <p>
+
                             Internet থেকে
                             readable information
                             পাওয়া যায়নি।
+
                         </p>
 
                     </div>
@@ -418,46 +415,97 @@ async function startResearch() {
 
 
         // ==================================
-        // Intent Information
+        // Structured Research
         // ==================================
 
         if (
-            Array.isArray(
-                data.intents
-            ) &&
-            data.intents.length > 0
+            data.structured &&
+            typeof data.structured === "object"
         ) {
 
-            html += `
+            const structured =
+                data.structured;
 
-                <div class="research-intro">
 
-                    <h2>
-                        🎯 Question Analysis
-                    </h2>
+            const keys =
+                Object.keys(
+                    structured
+                );
 
-                    <p>
 
-                        ${data.intents
-                            .map(
-                                function (intent) {
+            if (keys.length > 0) {
 
-                                    return `
-                                        <span class="intent-tag">
-                                            ${escapeHTML(intent)}
-                                        </span>
-                                    `;
+                html += `
 
-                                }
-                            )
-                            .join(" ")
+                    <div class="structured-research">
+
+                        <div class="sources-title">
+
+                            📋 Research Details
+
+                        </div>
+
+                `;
+
+
+                keys.forEach(
+                    function (key) {
+
+                        const section =
+                            structured[key];
+
+
+                        if (
+                            !section ||
+                            !String(section).trim()
+                        ) {
+
+                            return;
+
                         }
 
-                    </p>
 
-                </div>
+                        const label =
+                            getIntentLabel(
+                                key
+                            );
 
-            `;
+
+                        html += `
+
+                            <div class="research-section">
+
+                                <h3>
+
+                                    ${escapeHTML(
+                                        label
+                                    )}
+
+                                </h3>
+
+                                <p>
+
+                                    ${formatText(
+                                        section
+                                    )}
+
+                                </p>
+
+                            </div>
+
+                        `;
+
+                    }
+                );
+
+
+                html += `
+
+                    </div>
+
+                `;
+
+            }
 
         }
 
@@ -492,99 +540,7 @@ async function startResearch() {
 
 
         // ==================================
-        // Structured Research
-        // ==================================
-
-        if (
-            data.structured &&
-            typeof data.structured === "object"
-        ) {
-
-            const sections =
-                Object.entries(
-                    data.structured
-                );
-
-
-            if (
-                sections.length > 0
-            ) {
-
-                html += `
-
-                    <div class="structured-research">
-
-                        <div class="sources-title">
-
-                            📌 Detailed Information
-
-                        </div>
-
-                `;
-
-
-                sections.forEach(
-                    function (
-                        entry
-                    ) {
-
-                        const intent =
-                            entry[0];
-
-                        const content =
-                            entry[1];
-
-
-                        if (
-                            !content
-                        ) {
-
-                            return;
-
-                        }
-
-
-                        html += `
-
-                            <div class="structured-section">
-
-                                <h3>
-
-                                    ${escapeHTML(
-                                        intent
-                                    )}
-
-                                </h3>
-
-                                <div>
-
-                                    ${formatText(
-                                        content
-                                    )}
-
-                                </div>
-
-                            </div>
-
-                        `;
-
-                    }
-                );
-
-
-                html += `
-
-                    </div>
-
-                `;
-
-            }
-
-        }
-
-
-        // ==================================
-        // Video Sources
+        // Find Video Sources
         // ==================================
 
         const videoSources =
@@ -598,6 +554,10 @@ async function startResearch() {
                 }
             );
 
+
+        // ==================================
+        // YouTube / Video Examples
+        // ==================================
 
         if (
             videoSources.length > 0
@@ -622,6 +582,16 @@ async function startResearch() {
                     index
                 ) {
 
+                    const videoTitle =
+                        source.title ||
+                        "Video Example";
+
+
+                    const videoURL =
+                        source.url ||
+                        "#";
+
+
                     html += `
 
                         <div class="video-source">
@@ -630,15 +600,14 @@ async function startResearch() {
 
                                 ${index + 1}.
                                 ${escapeHTML(
-                                    source.title ||
-                                    "Video"
+                                    videoTitle
                                 )}
 
                             </h3>
 
                             <a
                                 href="${escapeAttribute(
-                                    source.url
+                                    videoURL
                                 )}"
                                 target="_blank"
                                 rel="noopener noreferrer"
@@ -724,17 +693,21 @@ async function startResearch() {
 
                         </h3>
 
+
                         ${
                             video
-                            ? `
-                                <div class="video-badge">
+                                ? `
 
-                                    🎥 Video source
+                                    <div class="video-badge">
 
-                                </div>
-                            `
-                            : ""
+                                        🎥 Video source
+
+                                    </div>
+
+                                `
+                                : ""
                         }
+
 
                         <p>
 
@@ -743,6 +716,7 @@ async function startResearch() {
                             )}
 
                         </p>
+
 
                         <a
                             href="${escapeAttribute(
@@ -754,8 +728,8 @@ async function startResearch() {
 
                             ${
                                 video
-                                ? "▶ Watch source →"
-                                : "Open source →"
+                                    ? "▶ Watch source →"
+                                    : "Open source →"
                             }
 
                         </a>
@@ -769,7 +743,7 @@ async function startResearch() {
 
 
         // ==================================
-        // Show Final Result
+        // Show Result
         // ==================================
 
         if (summary) {
@@ -827,7 +801,7 @@ async function startResearch() {
                     <p>
 
                         Backend অথবা
-                        Render API-তে
+                        research process-এ
                         সমস্যা হয়েছে।
 
                     </p>
@@ -864,7 +838,10 @@ async function startResearch() {
 
 function formatText(text) {
 
-    if (!text) {
+    if (
+        text === null ||
+        text === undefined
+    ) {
 
         return "";
 
@@ -877,7 +854,7 @@ function formatText(text) {
         );
 
 
-    // Markdown bold
+    // Bold markdown
     safeText =
         safeText.replace(
             /\*\*(.*?)\*\*/g,
@@ -885,7 +862,7 @@ function formatText(text) {
         );
 
 
-    // Normalize line breaks
+    // Normalize line endings
     safeText =
         safeText.replace(
             /\r\n/g,
@@ -893,6 +870,7 @@ function formatText(text) {
         );
 
 
+    // Multiple line breaks
     safeText =
         safeText.replace(
             /\n\n+/g,
@@ -900,6 +878,7 @@ function formatText(text) {
         );
 
 
+    // Single line break
     safeText =
         safeText.replace(
             /\n/g,
@@ -913,7 +892,7 @@ function formatText(text) {
 
 
 // ==========================================
-// Detect Video Source
+// Video Source Detector
 // ==========================================
 
 function isVideoSource(url) {
@@ -941,6 +920,10 @@ function isVideoSource(url) {
         ) ||
 
         value.includes(
+            "youtube-nocookie.com"
+        ) ||
+
+        value.includes(
             "vimeo.com"
         ) ||
 
@@ -949,6 +932,66 @@ function isVideoSource(url) {
         )
 
     );
+
+}
+
+
+// ==========================================
+// Intent Label
+// ==========================================
+
+function getIntentLabel(intent) {
+
+    const labels = {
+
+        "biography":
+            "👤 Biography",
+
+        "birth":
+            "🎂 Birth / Date of Birth",
+
+        "age":
+            "🔢 Age",
+
+        "career":
+            "💼 Career",
+
+        "songs":
+            "🎵 Songs",
+
+        "movies":
+            "🎬 Movies",
+
+        "education":
+            "🎓 Education",
+
+        "family":
+            "👨‍👩‍👧 Family",
+
+        "awards":
+            "🏆 Awards",
+
+        "net_worth":
+            "💰 Net Worth",
+
+        "personal_life":
+            "❤️ Personal Life"
+
+    };
+
+
+    return labels[intent] ||
+        String(intent)
+            .replace(
+                /_/g,
+                " "
+            )
+            .replace(
+                /\b\w/g,
+                function (char) {
+                    return char.toUpperCase();
+                }
+            );
 
 }
 
